@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/DyrtyJax/embeadings/main/schemas/v1/mentions.schema.json",
+  "title": "emBEADings text lineage claims report, schema version 1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "report_type",
+    "policy",
+    "snapshot",
+    "filters",
+    "summary",
+    "claims"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "report_type": {
+      "const": "mentions"
+    },
+    "policy": {
+      "type": "object",
+      "required": [
+        "read_only",
+        "tracker_mutation_allowed",
+        "advisory",
+        "snippets_included",
+        "notice"
+      ],
+      "properties": {
+        "read_only": {
+          "const": true
+        },
+        "tracker_mutation_allowed": {
+          "const": false
+        },
+        "advisory": {
+          "const": true
+        },
+        "snippets_included": {
+          "const": false
+        },
+        "notice": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "snapshot": {
+      "$ref": "#/$defs/snapshot"
+    },
+    "filters": {
+      "type": "object"
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "claimants_scanned",
+        "claims_found",
+        "claims_with_typed_link",
+        "kind_counts",
+        "omitted_by_limit"
+      ],
+      "properties": {
+        "claimants_scanned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "claims_found": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "claims_with_typed_link": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kind_counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "omitted_by_limit": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/claim"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "required": [
+        "workspace_id",
+        "beads_version"
+      ],
+      "properties": {
+        "workspace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "beads_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "tracker_name": {
+          "enum": [
+            "beads",
+            "linear"
+          ]
+        },
+        "tracker_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspace_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "relation_diagnostics": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "source_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_divergence_reasons": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "dependency_structure",
+              "issue_identity",
+              "issue_type",
+              "priority",
+              "record_count",
+              "status",
+              "update_marker"
+            ]
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "claim": {
+      "type": "object",
+      "required": [
+        "issue_id",
+        "related_issue_id",
+        "kind",
+        "source_fields",
+        "typed_link"
+      ],
+      "properties": {
+        "issue_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "related_issue_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "duplicate-of",
+            "superseded-by",
+            "absorbed-by",
+            "fixed-by",
+            "supersedes",
+            "absorbs",
+            "continued-in",
+            "mention"
+          ]
+        },
+        "source_fields": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "title",
+              "description",
+              "acceptance_criteria",
+              "design",
+              "notes",
+              "close_reason"
+            ]
+          }
+        },
+        "typed_link": {
+          "type": "boolean"
+        },
+        "issue_status": {
+          "type": "string"
+        },
+        "issue_title": {
+          "type": "string"
+        },
+        "related_status": {
+          "type": "string"
+        },
+        "related_title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

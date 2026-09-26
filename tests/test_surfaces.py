@@ -11,6 +11,7 @@ from embead.surfaces import (
     _associate_worktrees,
     _Worktree,
     analyze_code_surfaces,
+    compile_branch_patterns,
     extract_explicit_pointers,
     parse_worktree_mappings,
 )
@@ -770,3 +771,108 @@ def test_mapping_outside_population_explains_active_filter_requirements(tmp_path
             worktree_mappings={"proj.closed": worktree},
             runner=runner,
         )
+
+
+def test_short_bead_forms_associate_worktrees(tmp_path: Path) -> None:
+    dashed = _Worktree(tmp_path / "dashed", "head-1", "cfg/abc12-47-call-doors")
+    dotted = _Worktree(tmp_path / "dotted", "head-2", "lane/xyz99.3-gate-block")
+    unrelated = _Worktree(tmp_path / "unrelated", "head-3", "lane/r1-rest-before")
+
+    associations = _associate_worktrees(
+        # The epic's short form also appears in the dashed branch; the child is the work.
+        ("proj-abc12", "proj-abc12.47", "proj-xyz99.3"),
+        (dashed, dotted, unrelated),
+        {},
+    )
+
+    assert associations == {"proj-abc12.47": dashed, "proj-xyz99.3": dotted}
+
+
+def test_branch_naming_two_unrelated_issues_stays_unassociated(tmp_path: Path) -> None:
+    shared = _Worktree(tmp_path / "shared", "head", "cfg/abc12-1-2-xyz99")
+
+    assert _associate_worktrees(("proj-abc12.1.2", "proj-xyz99"), (shared,), {}) == {}
+
+
+def test_branch_pattern_reads_ids_the_default_segmentation_misses(tmp_path: Path) -> None:
+    worktree = _Worktree(tmp_path / "custom", "head", "topicXabc12.47")
+    patterns = compile_branch_patterns([r"X(?P<id>[a-z0-9.]+)$"])
+
+    assert _associate_worktrees(("proj-abc12.47",), (worktree,), {}) == {}
+    assert _associate_worktrees(("proj-abc12.47",), (worktree,), {}, patterns) == {
+        "proj-abc12.47": worktree
+    }
+    assert _associate_worktrees(
+        ("proj-abc12.47",), (worktree,), {}, compile_branch_patterns([r"X([a-z0-9.]+)$"])
+    ) == {"proj-abc12.47": worktree}
+
+
+def test_branch_pattern_must_compile_and_capture_an_id() -> None:
+    with pytest.raises(ValueError, match="must capture"):
+        compile_branch_patterns([r"lane/.*"])
+    with pytest.raises(ValueError, match="invalid --branch-pattern"):
+        compile_branch_patterns([r"lane/(?P<id>"])
+
+
+def _shared_module_runner(root: Path, first: Path, second: Path):
+    def runner(cwd: Path, arguments: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        command = tuple(arguments)
+        responses = {
+            ("rev-parse", "--is-inside-work-tree"): "true\n",
+            ("rev-parse", "HEAD"): "root-head\n",
+            ("rev-parse", "--verify", "origin/main"): "base-head\n",
+            ("rev-parse", "origin/main"): "base-head\n",
+        }
+        if command in responses:
+            return completed(responses[command])
+        if command == ("worktree", "list", "--porcelain"):
+            return completed(
+                f"worktree {root}\nHEAD root-head\nbranch refs/heads/main\n\n"
+                f"worktree {first}\nHEAD head-one\nbranch refs/heads/bead-1\n\n"
+                f"worktree {second}\nHEAD head-two\nbranch refs/heads/bead-2\n"
+            )
+        if command[:2] == ("diff", "--name-only"):
+            changed = {
+                first.resolve(): "src/parser/left.py\0",
+                second.resolve(): "src/parser/right.py\0",
+            }
+            return completed(changed.get(cwd.resolve(), ""))
+        if command == ("ls-files", "--others", "--exclude-standard", "-z"):
+            return completed()
+        raise AssertionError((cwd, arguments))
+
+    return runner
+
+
+@pytest.mark.parametrize(
+    ("floor", "kept", "omitted"),
+    [("explicit", 3, 0), ("corroborated", 3, 0), ("observed", 1, 2)],
+)
+def test_min_confidence_filters_and_counts_weaker_leads(
+    tmp_path: Path, floor: str, kept: int, omitted: int
+) -> None:
+    root, first, second = tmp_path / "repo", tmp_path / "worktree-1", tmp_path / "worktree-2"
+    for path in (root, first, second):
+        path.mkdir()
+
+    analysis = analyze_code_surfaces(
+        [
+            IssueRecord(id="proj.1", title="First"),
+            IssueRecord(id="proj.2", title="Second"),
+            IssueRecord(id="proj.3", title="Plan src/parser/third.py"),
+        ],
+        workspace_path=root,
+        runner=_shared_module_runner(root, first, second),
+        min_confidence=floor,
+    )
+
+    assert len(analysis.collisions) == kept
+    assert analysis.pairs_omitted_by_confidence_filter == omitted
+    assert analysis.min_confidence == floor
+    if floor == "observed":
+        assert {item.confidence for item in analysis.collisions} == {"observed"}
+
+
+def test_min_confidence_rejects_unknown_levels(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="min_confidence"):
+        analyze_code_surfaces([], workspace_path=None, min_confidence="certain")

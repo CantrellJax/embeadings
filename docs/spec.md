@@ -93,10 +93,11 @@ The shipped command inventory is:
 
 ```bash
 embead triage [--review-budget 20]
-embead neighbors ISSUE_ID [--limit N] [--include-closed] [--orphans-only]
+embead neighbors ISSUE_ID [ISSUE_ID ...] [--ids-file FILE] [--limit N] [--include-closed] [--orphans-only]
 embead sweep [--size 9]
 embead batch [--size 9]
-embead collisions [--worktree-map ISSUE_ID=PATH]
+embead collisions [--worktree-map ISSUE_ID=PATH] [--branch-pattern REGEX] [--min-confidence LEVEL]
+embead mentions [--include-linked] [--include-closed] [--include-mentions] [--limit 50]
 embead readiness [--offline]
 embead doctor [--offline]
 embead capabilities [--json]
@@ -106,8 +107,8 @@ All analysis commands are synchronous. `--json` selects machine-readable stdout.
 multi-artifact `triage`, `sweep`, and `batch` commands, `--output-dir DIRECTORY` writes the complete
 JSON, Markdown, and per-batch set; `--output REPORT.json` or `--output REPORT.md` writes only the
 primary report in the extension-selected format. Extensionless `--output PATH` remains a
-backward-compatible directory spelling, as does any other non-report suffix. `neighbors` and
-`collisions` use `--output FILE` for their
+backward-compatible directory spelling, as does any other non-report suffix. `neighbors`,
+`collisions`, and `mentions` use `--output FILE` for their
 single atomic report, whose format follows `--json`. `triage` is the opinionated bounded front door,
 while `sweep` exposes research and policy controls. `batch` is currently an alias for a synchronous
 sweep, not a separate scheduler.
@@ -121,11 +122,27 @@ not translate parent, ready, label, or arbitrary issue-ID expressions into track
 ### `neighbors`
 
 ```bash
-embead neighbors ISSUE_ID [--limit N] [--include-closed] [--orphans-only]
+embead neighbors ISSUE_ID [ISSUE_ID ...] [--ids-file FILE] [--limit N] [--include-closed] [--orphans-only]
 ```
 
 Returns the nearest records with similarity scores and structural context. Human output must label
 scores as advisory. JSON output includes the embedding model and index generation.
+
+Each neighbor carries its `rank` (1 is nearest) and `reverse_rank`: where the seed ranks among that
+neighbor's own neighbors, over the same candidate pool. Rank is the stronger signal. Absolute cosine
+scores are model-specific and compress: with a small static model, unrelated records in one domain
+can score 0.78 to 0.83 while a true duplicate ranks first at 0.68. Read a rank-1 neighbor before
+applying any score cutoff. A small reverse rank means the pair is mutual; a large one means the
+neighbor is a hub that many records resemble. `sweep` already admits near-threshold pairs that
+mutually rank within `--reciprocal-rank` when they fall within `--exception-margin` of the threshold;
+widen the margin to admit more mutual pairs.
+
+Each neighbor also carries `text_claims`: lineage claims either record's text makes about the other
+(see `mentions`), as IDs and a claim kind only.
+
+Several seeds (positional IDs, `--ids-file`, or both; duplicates are dropped in first-seen order) share
+one tracker load, model load, and vector index. One seed emits the `neighbors` report; several emit a
+`neighbors-batch` report whose `results` hold one `issue` and `neighbors` pair per seed.
 
 `--orphans-only` keeps only neighbors whose structural context is `none recorded`: the
 straggler question of high similarity with no tracker link. Because that property belongs to the
@@ -152,11 +169,40 @@ already-completed echoes can surface during tracker hygiene. This differs intent
 ### `collisions`
 
 ```bash
-embead collisions [--status STATUS] [--worktree-map ISSUE_ID=PATH]
+embead collisions [--status STATUS] [--worktree-map ISSUE_ID=PATH] [--branch-pattern REGEX] [--min-confidence LEVEL]
 ```
 
 Produces bounded local code-surface coordination leads without loading the embedding model. The same
 evidence can be added to `sweep` or is enabled opportunistically by `triage`.
+
+A worktree is associated with an active issue when its branch spells exactly one issue ID. Accepted
+spellings are the full ID (`proj-abc12.4`), the prefix-less form (`abc12.4`), and either with dots
+as dashes (`abc12-4`), read from any run of `/`, `_`, or `-` separated branch segments. A prefix-less
+top-level hash needs at least four characters, so tokens such as `c10` never match. When a branch
+spells both a parent and its child, the child wins. A branch that spells two unrelated issues stays
+unassociated. `--branch-pattern REGEX` (repeatable) adds a repository convention: the named group
+`id`, or group 1, is resolved through the same spellings. `--worktree-map` always takes precedence.
+
+Confidence is `observed` when both sides changed the shared surface in a worktree, `corroborated`
+when one side did and the other only mentions it in tracker text, and `explicit` when both only
+mention it. `--min-confidence corroborated|observed` drops weaker leads after pairing and reports the
+count as `pairs_omitted_by_confidence_filter`.
+
+### `mentions`
+
+```bash
+embead mentions [--include-linked] [--include-closed] [--include-mentions] [--limit 50]
+```
+
+Finds records whose text names another record with a lineage verb (duplicate of, superseded by,
+replaced by, absorbed by, folded into, moved to, carried by, fixed by, shipped in, supersedes, absorbs,
+continued in) and reports the claims that no parent or dependency link backs. The object may sit a
+few words after the verb within the same clause; denials ("not a duplicate of") are skipped. IDs
+resolve through the same spellings as worktree association. All text fields are scanned, including
+notes and the Beads close reason, but only IDs, the claim kind, and the field names are reported.
+By default only active records' claims are listed; `--include-closed` adds closed claimants,
+`--include-linked` adds claims a typed link already backs, and `--include-mentions` adds bare
+mentions whose spelling carries a dash or dot. The report does not load an embedding model.
 
 ### Readiness and capability inspection
 

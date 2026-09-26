@@ -15,6 +15,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
 
+from .identifiers import IssueIdResolver, prune_ancestors
+
 
 class GitRunner(Protocol):
     def __call__(self, cwd: Path, arguments: Sequence[str]) -> subprocess.CompletedProcess[str]: ...
@@ -110,6 +112,10 @@ _REFERENCE_INTENT_RE = re.compile(
 # this historical-diff guard.
 _MAX_COMMITTED_DIFF_PATHS = 250
 
+# Ascending strength: explicit (both sides are prose mentions), corroborated (one side observed in a
+# worktree), observed (both sides observed).
+CONFIDENCE_LEVELS = ("explicit", "corroborated", "observed")
+
 
 @dataclass(frozen=True, slots=True)
 class CodePointer:
@@ -167,6 +173,8 @@ class CodeSurfaceAnalysis:
     surfaces: tuple[dict[str, Any], ...]
     collisions: tuple[CodeSurfaceCollision, ...]
     hub_guard_sample: tuple[dict[str, Any], ...] = ()
+    min_confidence: str = "explicit"
+    pairs_omitted_by_confidence_filter: int = 0
     warnings: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
@@ -244,9 +252,13 @@ def analyze_code_surfaces(
     hub_surface_limit: int = 5,
     hub_guard_sample_limit: int = 0,
     eligible_issue_ids: frozenset[str] | None = None,
+    branch_patterns: Sequence[re.Pattern[str]] = (),
+    min_confidence: str = "explicit",
 ) -> CodeSurfaceAnalysis:
     """Build explicit and observed surfaces, then derive bounded pairwise collisions."""
 
+    if min_confidence not in CONFIDENCE_LEVELS:
+        raise ValueError(f"min_confidence must be one of {', '.join(CONFIDENCE_LEVELS)}")
     if hub_surface_limit < 1:
         raise ValueError("hub surface issue limit must be positive")
     if hub_guard_sample_limit < 0:
@@ -297,6 +309,7 @@ def analyze_code_surfaces(
             issue_ids,
             worktrees,
             worktree_mappings or {},
+            branch_patterns,
         )
         for issue_id, worktree in sorted(associations.items()):
             changed_paths = _changed_paths(worktree, effective_base, runner)
@@ -342,6 +355,13 @@ def analyze_code_surfaces(
         hub_guard_sample_limit=hub_guard_sample_limit,
         eligible_issue_ids=eligible_issue_ids,
     )
+    # Confidence is a pair property, so the filter runs after pairing and is counted, never silent.
+    floor = CONFIDENCE_LEVELS.index(min_confidence)
+    retained = tuple(
+        item for item in collisions if CONFIDENCE_LEVELS.index(item.confidence) >= floor
+    )
+    omitted_by_confidence = len(collisions) - len(retained)
+    collisions = retained
     explicit_ids = {
         pointer.issue_id for pointer in pointers if pointer.source == "explicit-reference"
     }
@@ -389,6 +409,8 @@ def analyze_code_surfaces(
         pairs_omitted_by_hub_guard=hub_omissions,
         pairs_omitted_by_module_guard=module_omissions,
         hub_guard_sample=hub_guard_sample,
+        min_confidence=min_confidence,
+        pairs_omitted_by_confidence_filter=omitted_by_confidence,
         surfaces=surfaces,
         collisions=collisions,
         warnings=tuple(warnings),
@@ -852,6 +874,7 @@ def _associate_worktrees(
     issue_ids: Sequence[str],
     worktrees: Sequence[_Worktree],
     explicit: Mapping[str, str | Path],
+    branch_patterns: Sequence[re.Pattern[str]] = (),
 ) -> dict[str, _Worktree]:
     by_path = {worktree.path: worktree for worktree in worktrees}
     associations: dict[str, _Worktree] = {}
@@ -874,15 +897,19 @@ def _associate_worktrees(
         associations[issue_id] = by_path[path]
         explicit_owners[path] = issue_id
 
+    resolver = IssueIdResolver(issue_ids)
     suffix_counts = Counter(_numeric_suffix(issue_id) for issue_id in issue_ids)
     for worktree in worktrees:
         if worktree.path in explicit_owners:
             continue
         branch = worktree.branch or ""
-        candidates = []
+        candidates: set[str] = set(resolver.branch_candidates(branch)) if branch else set()
+        for pattern in branch_patterns:
+            for match in pattern.finditer(branch):
+                captured = match.group("id") if "id" in pattern.groupindex else match.group(1)
+                if captured and (resolved := resolver.resolve(captured)):
+                    candidates.add(resolved)
         for issue_id in issue_ids:
-            if issue_id in associations:
-                continue
             suffix = _numeric_suffix(issue_id)
             full_match = bool(
                 re.search(
@@ -901,10 +928,32 @@ def _associate_worktrees(
                 )
             )
             if full_match or suffix_match:
-                candidates.append(issue_id)
-        if len(candidates) == 1:
-            associations[candidates[0]] = worktree
+                candidates.add(issue_id)
+        # A branch naming a child also spells its parent's prefix; the deepest ID is the work.
+        remaining = [
+            issue_id for issue_id in prune_ancestors(candidates) if issue_id not in associations
+        ]
+        if len(remaining) == 1:
+            associations[remaining[0]] = worktree
     return associations
+
+
+def compile_branch_patterns(values: Iterable[str]) -> tuple[re.Pattern[str], ...]:
+    """Compile ``--branch-pattern`` values; each must capture the issue ID."""
+
+    patterns = []
+    for value in values:
+        try:
+            pattern = re.compile(value, re.IGNORECASE)
+        except re.error as exc:
+            raise ValueError(f"invalid --branch-pattern {value!r}: {exc}") from exc
+        if "id" not in pattern.groupindex and pattern.groups < 1:
+            raise ValueError(
+                f"--branch-pattern {value!r} must capture the issue ID in a group "
+                "(preferably a named group: (?P<id>...))"
+            )
+        patterns.append(pattern)
+    return tuple(patterns)
 
 
 def _numeric_suffix(issue_id: str) -> str | None:

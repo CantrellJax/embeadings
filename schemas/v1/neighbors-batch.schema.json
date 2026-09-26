@@ -1,0 +1,298 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/DyrtyJax/embeadings/main/schemas/v1/neighbors-batch.schema.json",
+  "title": "emBEADings multi-seed neighbors report, schema version 1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "report_type",
+    "policy",
+    "snapshot",
+    "model",
+    "cache",
+    "results"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "report_type": {
+      "const": "neighbors-batch"
+    },
+    "filters": {
+      "type": "object"
+    },
+    "policy": {
+      "$ref": "#/$defs/policy"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/snapshot"
+    },
+    "model": {
+      "$ref": "#/$defs/model"
+    },
+    "cache": {
+      "$ref": "#/$defs/cache"
+    },
+    "results": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": [
+          "issue",
+          "neighbors"
+        ],
+        "properties": {
+          "issue": {
+            "$ref": "#/$defs/issue"
+          },
+          "neighbors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/neighbor"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "text-claim": {
+      "type": "object",
+      "required": [
+        "issue_id",
+        "related_issue_id",
+        "kind"
+      ],
+      "properties": {
+        "issue_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "related_issue_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "duplicate-of",
+            "superseded-by",
+            "absorbed-by",
+            "fixed-by",
+            "supersedes",
+            "absorbs",
+            "continued-in",
+            "mention"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "required": [
+        "read_only",
+        "tracker_mutation_allowed",
+        "advisory",
+        "notice"
+      ],
+      "properties": {
+        "read_only": {
+          "const": true
+        },
+        "tracker_mutation_allowed": {
+          "const": false
+        },
+        "advisory": {
+          "const": true
+        },
+        "notice": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "snapshot": {
+      "type": "object",
+      "required": [
+        "workspace_id",
+        "beads_version"
+      ],
+      "properties": {
+        "workspace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "beads_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "tracker_name": {
+          "enum": [
+            "beads",
+            "linear"
+          ]
+        },
+        "tracker_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspace_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "relation_diagnostics": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "source_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_divergence_reasons": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "dependency_structure",
+              "issue_identity",
+              "issue_type",
+              "priority",
+              "record_count",
+              "status",
+              "update_marker"
+            ]
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "model": {
+      "type": "object",
+      "required": [
+        "model_id",
+        "model_revision"
+      ],
+      "properties": {
+        "model_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model_revision": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "cache": {
+      "type": "object",
+      "properties": {
+        "hits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "misses": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "issue": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "priority": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "parent_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "neighbor": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/issue"
+        },
+        {
+          "type": "object",
+          "required": [
+            "similarity"
+          ],
+          "properties": {
+            "similarity": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            },
+            "rank": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "reverse_rank": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "structural_context": {
+              "type": "string"
+            },
+            "text_claims": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/text-claim"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

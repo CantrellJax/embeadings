@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "report_type": "mentions",
+  "policy": {
+    "read_only": true,
+    "tracker_mutation_allowed": false,
+    "advisory": true,
+    "snippets_included": false,
+    "notice": "Synthetic read-only example. Verify advisory evidence against current project state."
+  },
+  "snapshot": {
+    "workspace_id": "synthetic-workspace",
+    "beads_version": "1.0.5",
+    "workspace_path": null
+  },
+  "filters": {
+    "include_linked": false,
+    "include_closed": false,
+    "include_mentions": false,
+    "include_ephemeral": false,
+    "limit": 50
+  },
+  "summary": {
+    "claimants_scanned": 4,
+    "claims_found": 1,
+    "claims_with_typed_link": 1,
+    "kind_counts": {
+      "absorbed-by": 1
+    },
+    "omitted_by_limit": 0
+  },
+  "claims": [
+    {
+      "issue_id": "demo-4",
+      "related_issue_id": "demo-3",
+      "kind": "absorbed-by",
+      "source_fields": [
+        "notes"
+      ],
+      "typed_link": false,
+      "issue_status": "open",
+      "issue_title": "Remove session cookie fallback",
+      "related_status": "open",
+      "related_title": "Retire legacy session cookie"
+    }
+  ]
+}

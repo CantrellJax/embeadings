@@ -107,7 +107,15 @@ def test_capabilities_is_corpus_free_and_machine_readable(monkeypatch, capsys) -
         "protocol_version": 1,
         "role": "producer",
         "schema_versions": [1],
-        "report_types": ["neighbors", "batch", "sweep", "triage", "collisions"],
+        "report_types": [
+            "neighbors",
+            "neighbors-batch",
+            "batch",
+            "sweep",
+            "triage",
+            "collisions",
+            "mentions",
+        ],
         "capabilities": [
             "additive-fields",
             "advisory-evidence",
@@ -1467,3 +1475,171 @@ def test_changed_since_scopes_candidates_reports_unchanged_and_writes_checkpoint
     markdown = (tmp_path / "out" / "report.md").read_text()
     assert "Review scope: changed-since" in markdown
     assert "Unchanged active records excluded: 1" in markdown
+
+
+def test_neighbors_reports_rank_and_reverse_rank(monkeypatch, tmp_path, capsys) -> None:
+    _configure(monkeypatch, tmp_path)
+
+    assert cli.main(["neighbors", "demo-1", "--include-closed", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert [item["rank"] for item in payload["neighbors"]] == [1, 2]
+    for item in payload["neighbors"]:
+        # With three records, the seed is either the neighbor's first or second choice.
+        assert item["reverse_rank"] in {1, 2}
+        assert item["text_claims"] == []
+
+
+def test_neighbors_reverse_rank_matches_the_neighbors_own_query(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    _configure(monkeypatch, tmp_path)
+
+    assert cli.main(["neighbors", "demo-1", "--include-closed", "--json"]) == 0
+    forward = {item["id"]: item for item in json.loads(capsys.readouterr().out)["neighbors"]}
+    for neighbor_id, item in forward.items():
+        assert cli.main(["neighbors", neighbor_id, "--include-closed", "--json"]) == 0
+        reverse = json.loads(capsys.readouterr().out)["neighbors"]
+        assert [entry["id"] for entry in reverse].index("demo-1") + 1 == item["reverse_rank"]
+
+
+CLAIMING_ISSUES = (
+    IssueRecord(
+        id="demo-1",
+        title="Persist authentication tokens",
+        description="Keep users signed in across browser restarts",
+        status="open",
+    ),
+    IssueRecord(
+        id="demo-2",
+        title="Remember login state",
+        description="Store authentication tokens between sessions",
+        status="open",
+        notes="Absorbed by demo-1 after the auth review.",
+    ),
+    IssueRecord(
+        id="demo-3",
+        title="Lazy load gallery images",
+        description="Defer thumbnail loading until images are visible",
+        status="open",
+        notes="Fixed by demo-2; not a duplicate of demo-1.",
+        close_reason="private close text",
+    ),
+    IssueRecord(
+        id="demo-4",
+        title="Image placeholders",
+        status="closed",
+        notes="Superseded by demo-3.",
+    ),
+)
+
+
+class ClaimingAdapter:
+    def load(self):
+        return WorkspaceSnapshot("workspace-test", "1.0.5", "/tmp/demo/.beads"), CLAIMING_ISSUES
+
+
+def test_neighbors_batch_loads_the_corpus_once(monkeypatch, tmp_path, capsys) -> None:
+    _configure(monkeypatch, tmp_path)
+    monkeypatch.setattr(cli, "BeadsAdapter", ClaimingAdapter)
+    loads = []
+    original = cli._load_source
+    monkeypatch.setattr(cli, "_load_source", lambda args: loads.append(1) or original(args))
+    ids_file = tmp_path / "seeds.txt"
+    ids_file.write_text("# seeds\ndemo-2\n\ndemo-1  # repeated seed is ignored\n")
+
+    assert cli.main(["neighbors", "demo-1", "--ids-file", str(ids_file), "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert loads == [1]
+    assert payload["report_type"] == "neighbors-batch"
+    assert [result["issue"]["id"] for result in payload["results"]] == ["demo-1", "demo-2"]
+    seed_two = {item["id"]: item for item in payload["results"][1]["neighbors"]}
+    assert seed_two["demo-1"]["text_claims"] == [
+        {"issue_id": "demo-2", "related_issue_id": "demo-1", "kind": "absorbed-by"}
+    ]
+
+    assert cli.main(["neighbors", "demo-1", "demo-2"]) == 0
+    rendered = capsys.readouterr().out
+    assert rendered.count("# Semantic neighbors for") == 2
+    assert "demo-2 absorbed-by demo-1" in rendered
+
+
+def test_neighbors_rejects_missing_seeds_before_loading(monkeypatch, tmp_path, capsys) -> None:
+    _configure(monkeypatch, tmp_path)
+
+    assert cli.main(["neighbors"]) == 2
+    assert "at least one ISSUE_ID" in capsys.readouterr().err
+    assert cli.main(["neighbors", "demo-1", "demo-404"]) == 2
+    assert "issue not found: demo-404" in capsys.readouterr().err
+
+
+def test_mentions_reports_unlinked_active_claims_without_text(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    _configure(monkeypatch, tmp_path)
+    monkeypatch.setattr(cli, "BeadsAdapter", ClaimingAdapter)
+
+    def no_provider(_name):
+        raise AssertionError("mentions must not load an embedding provider")
+
+    monkeypatch.setattr(cli, "_provider", no_provider)
+
+    assert cli.main(["mentions", "--json"]) == 0
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+
+    assert payload["report_type"] == "mentions"
+    assert payload["policy"]["tracker_mutation_allowed"] is False
+    assert [(c["issue_id"], c["kind"], c["related_issue_id"]) for c in payload["claims"]] == [
+        ("demo-2", "absorbed-by", "demo-1"),
+        ("demo-3", "fixed-by", "demo-2"),
+    ]
+    assert payload["summary"]["claimants_scanned"] == 3
+    assert "private close text" not in output
+    assert "after the auth review" not in output
+
+    assert cli.main(["mentions", "--include-closed", "--limit", "1", "--json"]) == 0
+    limited = json.loads(capsys.readouterr().out)
+    assert len(limited["claims"]) == 1
+    assert limited["summary"]["claims_found"] == 3
+    assert limited["summary"]["omitted_by_limit"] == 2
+
+    assert cli.main(["mentions"]) == 0
+    rendered = capsys.readouterr().out
+    assert "- Claims found: 2 (absorbed-by 1, fixed-by 1)" in rendered
+    assert "| demo-2 | open | absorbed-by | demo-1 | open | notes | no |" in rendered
+
+
+def test_code_surface_flags_reach_the_analysis(monkeypatch, tmp_path) -> None:
+    _configure(monkeypatch, tmp_path)
+    captured = {}
+
+    class Analysis:
+        def to_dict(self):
+            return {"collisions": [], "warnings": []}
+
+    def analyze(_issues, **kwargs):
+        captured.update(kwargs)
+        return Analysis()
+
+    monkeypatch.setattr(cli, "analyze_code_surfaces", analyze)
+
+    assert (
+        cli.main(
+            [
+                "collisions",
+                "--min-confidence",
+                "observed",
+                "--branch-pattern",
+                r"lane/(?P<id>[a-z0-9.]+)",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    assert captured["min_confidence"] == "observed"
+    assert [pattern.pattern for pattern in captured["branch_patterns"]] == [
+        r"lane/(?P<id>[a-z0-9.]+)"
+    ]
+    assert cli.main(["collisions", "--branch-pattern", "lane/.*"]) == 2
