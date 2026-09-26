@@ -3,7 +3,7 @@
   "protocol_version": 1,
   "role": "producer",
   "schema_versions": [1],
-  "report_types": ["neighbors", "batch", "sweep", "triage", "collisions"],
+  "report_types": ["neighbors", "neighbors-batch", "batch", "sweep", "triage", "collisions", "mentions"],
   "capabilities": ["additive-fields", "advisory-evidence", "read-only-review", "code-surface-pointers"],
   "required_capabilities": ["read-only-review"]
 }

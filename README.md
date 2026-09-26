@@ -41,6 +41,12 @@ embead neighbors ISSUE_ID --include-closed
 
 # Find the stragglers: similar records with no structural link
 embead neighbors ISSUE_ID --orphans-only
+
+# Several seeds in one load; rank and reverse rank beat raw scores
+embead neighbors ISSUE_A ISSUE_B --ids-file more-seeds.txt
+
+# Records whose text says "absorbed by X" or "duplicate of X" with no typed link
+embead mentions
 ```
 
 Without `pipx` or `uv`, the standard library is enough:
@@ -132,16 +138,22 @@ inspection. The default is a reviewer-capacity budget, not corpus coverage; see 
 For `triage`, `sweep`, and `batch`, use `--output-dir DIRECTORY` when you want the complete JSON,
 Markdown, and per-batch artifact set. Use `--output report.json` or `--output report.md` for one
 primary report file; the extension chooses the file format independently of `--json` stdout.
-Any other `--output PATH` remains a backward-compatible directory spelling. `neighbors` and
-`collisions` always treat `--output` as one atomic report file.
+Any other `--output PATH` remains a backward-compatible directory spelling. `neighbors`,
+`collisions`, and `mentions` always treat `--output` as one atomic report file.
 
 `collisions` reviews `open`, `in_progress`, and `blocked` work by default. It associates Git worktrees
-when a branch contains a full Bead ID or unambiguous `bead-N` suffix. Explicitly map an otherwise
-unassociated worktree with:
+when a branch spells exactly one issue ID: the full ID, a prefix-less short form such as `abc12.4` or
+`abc12-4`, or an unambiguous `bead-N` suffix. Teach it another convention, or explicitly map an
+otherwise unassociated worktree:
 
 ```bash
+embead collisions --branch-pattern 'ticket/(?P<id>[a-z0-9.]+)'
 embead collisions --worktree-map embead-42=../feature-worktree
 ```
+
+On a busy tracker most leads are `explicit` (two records mention the same path in prose). Keep only
+leads with worktree evidence with `--min-confidence corroborated`, or both sides observed with
+`--min-confidence observed`.
 
 Never fabricate a mapping: observed evidence must describe genuine active implementation work.
 Shared paths are coordination evidence, not proof that two tasks conflict.

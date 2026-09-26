@@ -28,6 +28,7 @@ from .beads import BeadsAdapter
 from .cache import VectorCache
 from .doctor import diagnose
 from .explain import explain_candidate
+from .identifiers import IssueIdResolver
 from .incremental import (
     IncrementalScope,
     build_checkpoint,
@@ -36,6 +37,8 @@ from .incremental import (
     scope_since_timestamp,
 )
 from .linear import LinearAdapter
+from .mentions import extract_claims
+from .mentions import kind_counts as claim_kind_counts
 from .models import IssueRecord, WorkspaceSnapshot, canonical_text, semantic_field_texts
 from .provider import HashingProvider, Model2VecProvider, provider_readiness
 from .ranking import (
@@ -49,20 +52,30 @@ from .ranking import (
 from .reports import (
     build_batch_manifest,
     build_collisions_payload,
+    build_mentions_payload,
+    build_neighbors_batch_payload,
     build_neighbors_payload,
     build_sweep_payload,
     build_triage_payload,
     describe_conservation_balance,
     render_batch_markdown,
     render_collisions_markdown,
+    render_mentions_markdown,
+    render_neighbors_batch_markdown,
     render_neighbors_markdown,
     render_sweep_markdown,
     render_triage_markdown,
 )
-from .surfaces import analyze_code_surfaces, parse_worktree_mappings
+from .surfaces import (
+    CONFIDENCE_LEVELS,
+    analyze_code_surfaces,
+    compile_branch_patterns,
+    parse_worktree_mappings,
+)
 from .trackers import TrackerAdapter, TrackerError
 
 ACTIVE_STATUSES = {"open", "in_progress", "blocked", "deferred"}
+CLOSED_STATUSES = {"closed", "done", "completed", "resolved"}
 COLLISION_STATUSES = {"open", "in_progress", "blocked"}
 REPORT_FILE_FORMATS = {
     ".json": "json",
@@ -121,7 +134,18 @@ def _parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     neighbors = subparsers.add_parser("neighbors", help="Find nearest semantic neighbors")
-    neighbors.add_argument("issue_id")
+    neighbors.add_argument(
+        "issue_ids",
+        nargs="*",
+        metavar="ISSUE_ID",
+        help="One or more seeds; several seeds share one tracker, model, and vector load",
+    )
+    neighbors.add_argument(
+        "--ids-file",
+        type=Path,
+        metavar="FILE",
+        help="Read additional seed IDs from FILE, one per line ('#' starts a comment)",
+    )
     neighbors.add_argument("--limit", type=int, default=5)
     neighbors.add_argument("--include-closed", action="store_true")
     neighbors.add_argument(
@@ -139,6 +163,38 @@ def _parser() -> argparse.ArgumentParser:
     )
     neighbors.add_argument("--json", action="store_true", dest="as_json")
     neighbors.add_argument(
+        "--output",
+        type=Path,
+        metavar="FILE",
+        help="Atomically write this single report (JSON with --json; Markdown otherwise)",
+    )
+
+    mentions = subparsers.add_parser(
+        "mentions",
+        help=(
+            "Find records whose text calls another a duplicate, successor, absorber, or fix "
+            "without a typed link"
+        ),
+    )
+    mentions.add_argument(
+        "--include-linked",
+        action="store_true",
+        help="Also report claims already backed by a parent or dependency link",
+    )
+    mentions.add_argument(
+        "--include-closed",
+        action="store_true",
+        help="Also report claims made by closed records (default: active claimants only)",
+    )
+    mentions.add_argument(
+        "--include-mentions",
+        action="store_true",
+        help="Also report bare ID mentions that carry no lineage verb",
+    )
+    mentions.add_argument("--limit", type=int, default=50)
+    _ephemeral_argument(mentions)
+    mentions.add_argument("--json", action="store_true", dest="as_json")
+    mentions.add_argument(
         "--output",
         type=Path,
         metavar="FILE",
@@ -422,9 +478,29 @@ def _code_surface_arguments(parser: argparse.ArgumentParser, *, opt_in: bool) ->
         ),
     )
     parser.add_argument(
+        "--branch-pattern",
+        action="append",
+        default=[],
+        metavar="REGEX",
+        help=(
+            "Extra rule for reading an issue ID out of a worktree branch name; the ID is the "
+            "named group 'id' (or group 1) and may be a short form such as abc12.4 or abc12-4. "
+            "Repeatable."
+        ),
+    )
+    parser.add_argument(
         "--base-ref",
         default="origin/main",
         help="Local Git reference used to identify committed worktree changes",
+    )
+    parser.add_argument(
+        "--min-confidence",
+        choices=CONFIDENCE_LEVELS,
+        default="explicit",
+        help=(
+            "Drop collision leads below this confidence: explicit keeps all, corroborated needs "
+            "one side observed in a worktree, observed needs both (default: explicit)"
+        ),
     )
     parser.add_argument(
         "--explain-hub-guard",
@@ -725,7 +801,15 @@ def _capabilities(args: argparse.Namespace) -> int:
         "protocol_version": 1,
         "role": "producer",
         "schema_versions": [1],
-        "report_types": ["neighbors", "batch", "sweep", "triage", "collisions"],
+        "report_types": [
+            "neighbors",
+            "neighbors-batch",
+            "batch",
+            "sweep",
+            "triage",
+            "collisions",
+            "mentions",
+        ],
         "capabilities": list(PRODUCER_CAPABILITIES),
         "required_capabilities": ["read-only-review"],
     }
@@ -781,6 +865,8 @@ def _surface_analysis(
         hub_surface_limit=args.max_hub_surface_issues,
         hub_guard_sample_limit=args.explain_hub_guard,
         eligible_issue_ids=eligible_issue_ids,
+        branch_patterns=compile_branch_patterns(getattr(args, "branch_pattern", ())),
+        min_confidence=getattr(args, "min_confidence", "explicit"),
     )
     return analysis.to_dict()
 
@@ -803,6 +889,7 @@ def _collisions(args: argparse.Namespace) -> int:
             "status": sorted(statuses),
             "include_epics": args.include_epics,
             "include_ephemeral": args.include_ephemeral,
+            "min_confidence": args.min_confidence,
         },
     )
     rendered = _json_text(payload) if args.as_json else render_collisions_markdown(payload)
@@ -820,21 +907,30 @@ def _json_text(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
-def _neighbors(args: argparse.Namespace) -> int:
-    snapshot, issues = _load_source(args)
-    if not args.include_ephemeral:
-        issues = tuple(issue for issue in issues if not issue.ephemeral)
-    by_id = {issue.id: issue for issue in issues}
-    if args.issue_id not in by_id:
-        raise ValueError(f"issue not found: {args.issue_id}")
-    if args.limit < 0:
-        raise ValueError("--limit cannot be negative")
-    provider = _provider(args.provider)
-    cache_path, _ = _workspace_paths(snapshot.workspace_id)
-    vectors, cache_stats = _load_vectors(issues, provider, VectorCache(cache_path))
-    similarity_index = SimilarityIndex(vectors)
+def _neighbor_seed_ids(args: argparse.Namespace) -> list[str]:
+    seeds = list(args.issue_ids)
+    if args.ids_file:
+        for line in args.ids_file.read_text(encoding="utf-8").splitlines():
+            if identifier := line.split("#", 1)[0].strip():
+                seeds.append(identifier)
+    seeds = list(dict.fromkeys(seeds))
+    if not seeds:
+        raise ValueError("neighbors needs at least one ISSUE_ID or --ids-file")
+    return seeds
+
+
+def _neighbor_evidence(
+    args: argparse.Namespace,
+    seed: IssueRecord,
+    issues: tuple[IssueRecord, ...],
+    by_id: dict[str, IssueRecord],
+    vectors: dict[str, list[float]],
+    similarity_index: SimilarityIndex,
+    pool: Any,
+    resolver: IssueIdResolver,
+) -> list[dict[str, Any]]:
     ranked = nearest_neighbors(
-        by_id[args.issue_id],
+        seed,
         issues,
         vectors,
         # Orphan filtering is a property of the pair, not of the ranking, so the
@@ -844,33 +940,141 @@ def _neighbors(args: argparse.Namespace) -> int:
         similarity_index=similarity_index,
     )
     evidence = []
-    for neighbor in ranked:
+    for rank, neighbor in enumerate(ranked, start=1):
         related = by_id[neighbor.issue_id]
-        context = _structural_context(by_id[args.issue_id], related)
+        context = _structural_context(seed, related)
         if args.orphans_only and context != NO_STRUCTURAL_LINK:
             continue
+        claims = extract_claims((seed, related), (seed, related), resolver=resolver)
         evidence.append(
             {
                 **_issue_summary(related),
                 "similarity": round(neighbor.similarity, 6),
+                "rank": rank,
+                # Where the seed ranks among this neighbor's own neighbors.
+                "reverse_rank": similarity_index.rank_of(related.id, seed.id, pool),
                 "structural_context": context,
+                "text_claims": [
+                    {
+                        "issue_id": claim.issue_id,
+                        "related_issue_id": claim.related_issue_id,
+                        "kind": claim.kind,
+                    }
+                    for claim in claims
+                ],
             }
         )
         if args.orphans_only and len(evidence) >= args.limit:
             break
-    payload = build_neighbors_payload(
-        _issue_summary(by_id[args.issue_id]),
-        evidence,
+    return evidence
+
+
+def _neighbors(args: argparse.Namespace) -> int:
+    seeds = _neighbor_seed_ids(args)
+    if args.limit < 0:
+        raise ValueError("--limit cannot be negative")
+    snapshot, issues = _load_source(args)
+    if not args.include_ephemeral:
+        issues = tuple(issue for issue in issues if not issue.ephemeral)
+    by_id = {issue.id: issue for issue in issues}
+    missing = [seed for seed in seeds if seed not in by_id]
+    if missing:
+        raise ValueError(f"issue not found: {', '.join(missing)}")
+    provider = _provider(args.provider)
+    cache_path, _ = _workspace_paths(snapshot.workspace_id)
+    vectors, cache_stats = _load_vectors(issues, provider, VectorCache(cache_path))
+    similarity_index = SimilarityIndex(vectors)
+    # The reverse rank uses the same candidate pool the forward ranking did.
+    pool = similarity_index.positions(
+        [
+            issue.id
+            for issue in issues
+            if args.include_closed or issue.status.casefold() not in CLOSED_STATUSES
+        ]
+    )
+    resolver = IssueIdResolver(by_id)
+    results = [
+        (
+            _issue_summary(by_id[seed]),
+            _neighbor_evidence(
+                args, by_id[seed], issues, by_id, vectors, similarity_index, pool, resolver
+            ),
+        )
+        for seed in seeds
+    ]
+    filters = {
+        "include_closed": bool(args.include_closed),
+        "structural_link": "none-recorded" if args.orphans_only else "any",
+        "limit": args.limit,
+    }
+    if len(results) == 1:
+        payload = build_neighbors_payload(
+            results[0][0],
+            results[0][1],
+            snapshot=asdict(snapshot),
+            model=_model_metadata(provider),
+            cache=cache_stats,
+            filters=filters,
+        )
+        rendered = _json_text(payload) if args.as_json else render_neighbors_markdown(payload)
+    else:
+        payload = build_neighbors_batch_payload(
+            results,
+            snapshot=asdict(snapshot),
+            model=_model_metadata(provider),
+            cache=cache_stats,
+            filters=filters,
+        )
+        rendered = _json_text(payload) if args.as_json else render_neighbors_batch_markdown(payload)
+    if args.output:
+        _atomic_text(args.output, rendered)
+    sys.stdout.write(rendered)
+    return _divergence_exit(args, snapshot)
+
+
+def _mentions(args: argparse.Namespace) -> int:
+    if args.limit < 0:
+        raise ValueError("--limit cannot be negative")
+    snapshot, issues = _load_source(args)
+    if not args.include_ephemeral:
+        issues = tuple(issue for issue in issues if not issue.ephemeral)
+    by_id = {issue.id: issue for issue in issues}
+    claimants = [
+        issue
+        for issue in issues
+        if args.include_closed or issue.status.casefold() in ACTIVE_STATUSES
+    ]
+    found = extract_claims(claimants, issues, include_mentions=args.include_mentions)
+    selected = [claim for claim in found if args.include_linked or not claim.typed_link]
+    shown = selected[: args.limit]
+    payload = build_mentions_payload(
+        [
+            {
+                **asdict(claim),
+                "issue_status": by_id[claim.issue_id].status,
+                "issue_title": by_id[claim.issue_id].title,
+                "related_status": by_id[claim.related_issue_id].status,
+                "related_title": by_id[claim.related_issue_id].title,
+            }
+            for claim in shown
+        ],
         snapshot=asdict(snapshot),
-        model=_model_metadata(provider),
-        cache=cache_stats,
         filters={
+            "include_linked": bool(args.include_linked),
             "include_closed": bool(args.include_closed),
-            "structural_link": "none-recorded" if args.orphans_only else "any",
+            "include_mentions": bool(args.include_mentions),
+            "include_ephemeral": bool(args.include_ephemeral),
             "limit": args.limit,
         },
+        summary={
+            "claimants_scanned": len(claimants),
+            "claims_found": len(selected),
+            "claims_with_typed_link": sum(claim.typed_link for claim in found),
+            "kind_counts": claim_kind_counts(selected),
+            "omitted_by_limit": len(selected) - len(shown),
+        },
     )
-    rendered = _json_text(payload) if args.as_json else render_neighbors_markdown(payload)
+    rendered = _json_text(payload) if args.as_json else render_mentions_markdown(payload)
     if args.output:
         _atomic_text(args.output, rendered)
     sys.stdout.write(rendered)
@@ -1511,6 +1715,8 @@ def main(argv: list[str] | None = None) -> int:
             return _doctor(args)
         if args.command == "collisions":
             return _collisions(args)
+        if args.command == "mentions":
+            return _mentions(args)
         return _sweep(args)
     except (TrackerError, OSError, RuntimeError, ValueError) as exc:
         print(f"embead: {exc}", file=sys.stderr)

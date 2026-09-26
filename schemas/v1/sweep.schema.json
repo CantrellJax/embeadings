@@ -170,6 +170,8 @@
         "hub_surfaces": { "type": "array" },
         "pairs_omitted_by_hub_guard": { "type": "integer", "minimum": 0 },
         "pairs_omitted_by_module_guard": { "type": "integer", "minimum": 0 },
+        "min_confidence": { "enum": ["explicit", "corroborated", "observed"] },
+        "pairs_omitted_by_confidence_filter": { "type": "integer", "minimum": 0 },
         "hub_guard_sample": {
           "type": "array",
           "items": {

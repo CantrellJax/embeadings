@@ -11,6 +11,8 @@ from jsonschema import Draft202012Validator, ValidationError
 from embead.reports import (
     build_batch_manifest,
     build_collisions_payload,
+    build_mentions_payload,
+    build_neighbors_batch_payload,
     build_neighbors_payload,
     build_sweep_payload,
     build_triage_payload,
@@ -110,7 +112,18 @@ def _load(directory: Path, name: str) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize(
-    "name", ["neighbors", "batch", "sweep", "triage", "collisions", "capabilities", "checkpoint"]
+    "name",
+    [
+        "neighbors",
+        "neighbors-batch",
+        "batch",
+        "sweep",
+        "triage",
+        "collisions",
+        "mentions",
+        "capabilities",
+        "checkpoint",
+    ],
 )
 def test_schema_is_valid_draft_2020_12_and_accepts_example(name: str) -> None:
     schema = _load(SCHEMAS, f"{name}.schema.json")
@@ -296,7 +309,9 @@ def test_version_one_accepts_legacy_review_budget_shape() -> None:
     Draft202012Validator(_load(SCHEMAS, "sweep.schema.json")).validate(payload)
 
 
-@pytest.mark.parametrize("name", ["neighbors", "batch", "sweep", "collisions"])
+@pytest.mark.parametrize(
+    "name", ["neighbors", "neighbors-batch", "batch", "sweep", "collisions", "mentions"]
+)
 def test_version_one_accepts_generic_linear_snapshot(name: str) -> None:
     payload = _load(EXAMPLES, f"{name}.json")
     payload["snapshot"] = {
@@ -328,3 +343,51 @@ def test_unsupported_version_and_weakened_policy_are_rejected() -> None:
         Draft202012Validator(schema).validate(unsupported)
     with pytest.raises(ValidationError):
         Draft202012Validator(schema).validate(unsafe)
+
+
+def test_new_report_builders_produce_schema_valid_payloads() -> None:
+    neighbor = {
+        **ISSUE,
+        "id": "demo-2",
+        "similarity": 0.68,
+        "rank": 1,
+        "reverse_rank": 1,
+        "text_claims": [
+            {"issue_id": "demo-2", "related_issue_id": "demo-1", "kind": "absorbed-by"}
+        ],
+    }
+    batch = build_neighbors_batch_payload(
+        [(ISSUE, [neighbor]), ({**ISSUE, "id": "demo-2"}, [])],
+        snapshot=SNAPSHOT,
+        model=MODEL,
+        cache=CACHE,
+    )
+    Draft202012Validator(_load(SCHEMAS, "neighbors-batch.schema.json")).validate(batch)
+    single = build_neighbors_payload(ISSUE, [neighbor], snapshot=SNAPSHOT, model=MODEL)
+    Draft202012Validator(_load(SCHEMAS, "neighbors.schema.json")).validate(single)
+
+    mentions = build_mentions_payload(
+        [
+            {
+                "issue_id": "demo-2",
+                "related_issue_id": "demo-1",
+                "kind": "absorbed-by",
+                "source_fields": ("notes", "close_reason"),
+                "typed_link": False,
+            }
+        ],
+        snapshot=SNAPSHOT,
+        summary={
+            "claimants_scanned": 2,
+            "claims_found": 1,
+            "claims_with_typed_link": 0,
+            "kind_counts": {"absorbed-by": 1},
+            "omitted_by_limit": 0,
+        },
+    )
+    Draft202012Validator(_load(SCHEMAS, "mentions.schema.json")).validate(mentions)
+
+    unsafe = copy.deepcopy(mentions)
+    unsafe["claims"][0]["context"] = "raw tracker text"
+    with pytest.raises(ValidationError):
+        Draft202012Validator(_load(SCHEMAS, "mentions.schema.json")).validate(unsafe)

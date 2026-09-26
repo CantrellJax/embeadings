@@ -29,6 +29,11 @@ Use `--worktree-map ISSUE_ID=PATH` only for a registered worktree containing gen
 implementation changes. Never associate an idle, administrative, stale, or reconstructed worktree
 just to increase coverage.
 
+Branches that spell an issue ID in full or short form (`abc12.4`, `abc12-4`) associate on their own.
+For another naming convention, pass `--branch-pattern REGEX` with the ID in a named group `id`.
+On a large tracker, `--min-confidence corroborated` keeps only leads with worktree evidence on at
+least one side; the report counts what the filter dropped.
+
 ## Interpret conservatively
 
 - Observed exact-file evidence is the strongest collision lead.

@@ -16,6 +16,27 @@
   },
   "additionalProperties": true,
   "$defs": {
+    "text-claim": {
+      "type": "object",
+      "required": ["issue_id", "related_issue_id", "kind"],
+      "properties": {
+        "issue_id": { "type": "string", "minLength": 1 },
+        "related_issue_id": { "type": "string", "minLength": 1 },
+        "kind": {
+          "enum": [
+            "duplicate-of",
+            "superseded-by",
+            "absorbed-by",
+            "fixed-by",
+            "supersedes",
+            "absorbs",
+            "continued-in",
+            "mention"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "policy": {
       "type": "object",
       "required": ["read_only", "tracker_mutation_allowed", "advisory", "notice"],
@@ -95,7 +116,10 @@
           "required": ["similarity"],
           "properties": {
             "similarity": { "type": "number", "minimum": -1, "maximum": 1 },
-            "structural_context": { "type": "string" }
+            "rank": { "type": "integer", "minimum": 1 },
+            "reverse_rank": { "type": "integer", "minimum": 1 },
+            "structural_context": { "type": "string" },
+            "text_claims": { "type": "array", "items": { "$ref": "#/$defs/text-claim" } }
           }
         }
       ]

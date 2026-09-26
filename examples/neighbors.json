@@ -36,7 +36,10 @@
       "parent_id": "demo-epic",
       "dependencies": [],
       "similarity": 0.91,
-      "structural_context": "same parent demo-epic"
+      "rank": 1,
+      "reverse_rank": 2,
+      "structural_context": "same parent demo-epic",
+      "text_claims": []
     }
   ]
 }

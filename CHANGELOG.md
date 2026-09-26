@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+Field-report follow-ups from a native-Beads sweep of about 6,000 issues and 14 worktrees.
+
+- Add `embead mentions`: records whose text names another as a duplicate, successor, absorber, or
+  fix ("absorbed by X", "superseded by X", "duplicate of X", "fixed by X") with no typed link.
+  Resolves full and prefix-less IDs, skips denials, scans notes and close reasons, and reports only
+  IDs, the claim kind, and field names. Opt-in bare mentions, closed claimants, and linked claims.
+- Associate worktrees whose branches use short bead forms (`abc12.4`, `abc12-4`), prefer a child
+  over its parent, refuse branches that spell two unrelated issues, and add a repeatable
+  `--branch-pattern REGEX` for repository conventions.
+- Add `--min-confidence explicit|corroborated|observed` to `collisions` (and code-surface sweeps),
+  counting the leads it drops as `pairs_omitted_by_confidence_filter`.
+- Report each neighbor's `rank`, `reverse_rank`, and `text_claims`, and document that rank is a
+  stronger signal than a model-specific score cutoff.
+- Accept several seeds in `neighbors` (positional IDs and `--ids-file`), sharing one tracker, model,
+  and vector load and emitting a `neighbors-batch` report.
+
 ## 0.4.3 — 2026-07-29
 
 Field-report follow-ups: a broken headline command, and diagnostics you can act on.

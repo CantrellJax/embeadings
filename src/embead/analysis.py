@@ -100,6 +100,25 @@ class SimilarityIndex:
         ranked.sort(key=lambda item: (-item[1], item[0]))
         return ranked
 
+    def positions(self, identifiers: Sequence[str]) -> np.ndarray:
+        """Return index positions for a reusable candidate pool (IDs sort like positions)."""
+
+        return np.asarray([self._position(item) for item in identifiers], dtype=np.intp)
+
+    def rank_of(self, query_id: str, target_id: str, pool: np.ndarray) -> int:
+        """Return the 1-based rank of ``target_id`` among ``pool`` for ``query_id``.
+
+        Ties break by ascending ID, matching :meth:`ranked`; the query itself never ranks.
+        """
+
+        query = self._position(query_id)
+        target = self._position(target_id)
+        row = self._scores[query, pool]
+        target_score = self._scores[query, target]
+        eligible = (pool != query) & (pool != target)
+        ahead = eligible & ((row > target_score) | ((row == target_score) & (pool < target)))
+        return int(np.count_nonzero(ahead)) + 1
+
     def top_ranks(
         self,
         query_ids: Sequence[str],

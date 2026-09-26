@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "report_type": "neighbors-batch",
+  "filters": {
+    "include_closed": true,
+    "structural_link": "any",
+    "limit": 1
+  },
+  "policy": {
+    "read_only": true,
+    "tracker_mutation_allowed": false,
+    "advisory": true,
+    "notice": "Synthetic read-only example. Verify advisory evidence against current project state."
+  },
+  "snapshot": {
+    "workspace_id": "synthetic-workspace",
+    "beads_version": "1.0.5",
+    "workspace_path": null
+  },
+  "model": {
+    "model_id": "synthetic-local-model",
+    "model_revision": "example-revision"
+  },
+  "cache": {
+    "hits": 2,
+    "misses": 0
+  },
+  "results": [
+    {
+      "issue": {
+        "id": "demo-1",
+        "title": "Document token refresh",
+        "status": "open",
+        "priority": 2,
+        "labels": [
+          "documentation"
+        ],
+        "parent_id": "demo-epic",
+        "dependencies": []
+      },
+      "neighbors": [
+        {
+          "id": "demo-2",
+          "title": "Implement token refresh",
+          "status": "closed",
+          "priority": 1,
+          "labels": [
+            "auth"
+          ],
+          "parent_id": "demo-epic",
+          "dependencies": [],
+          "similarity": 0.91,
+          "structural_context": "same parent demo-epic",
+          "rank": 1,
+          "reverse_rank": 2,
+          "text_claims": []
+        }
+      ]
+    },
+    {
+      "issue": {
+        "id": "demo-3",
+        "title": "Retire legacy session cookie",
+        "status": "open",
+        "priority": 2,
+        "labels": [
+          "auth"
+        ],
+        "parent_id": null,
+        "dependencies": []
+      },
+      "neighbors": [
+        {
+          "id": "demo-4",
+          "title": "Remove session cookie fallback",
+          "status": "open",
+          "priority": 2,
+          "labels": [
+            "auth"
+          ],
+          "parent_id": null,
+          "dependencies": [],
+          "similarity": 0.68,
+          "rank": 1,
+          "reverse_rank": 1,
+          "structural_context": "none recorded",
+          "text_claims": [
+            {
+              "issue_id": "demo-4",
+              "related_issue_id": "demo-3",
+              "kind": "absorbed-by"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

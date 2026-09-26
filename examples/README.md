@@ -9,6 +9,8 @@ or reviewing the privacy boundary; use the installed CLI for current command hel
 | [`triage.json`](triage.json) | Compact bounded packet intended for routine human or agent review |
 | [`collisions.json`](collisions.json) | Exact-file lead from two genuine-worktree-style synthetic pointers |
 | [`neighbors.json`](neighbors.json) | Semantic neighbors for one issue |
+| [`neighbors-batch.json`](neighbors-batch.json) | Semantic neighbors for several seeds sharing one load |
+| [`mentions.json`](mentions.json) | Text lineage claim with no typed link, reported without the text |
 | [`sweep.json`](sweep.json) | Full synchronous analysis and batching report |
 | [`batch.json`](batch.json) | Compatibility alias for a synchronous sweep artifact |
 | [`capabilities.json`](capabilities.json) | Schema and feature negotiation handshake |

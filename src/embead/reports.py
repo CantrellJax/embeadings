@@ -208,6 +208,65 @@ def build_neighbors_payload(
     return payload
 
 
+def build_neighbors_batch_payload(
+    results: Iterable[tuple[Any, Iterable[Any]]],
+    *,
+    snapshot: Any,
+    model: Any,
+    cache: Any | None = None,
+    filters: Any | None = None,
+) -> dict[str, Any]:
+    """Build one payload for several seeds that shared a single corpus and model load."""
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "report_type": "neighbors-batch",
+        "filters": _jsonable(filters or {}),
+        "policy": {
+            "read_only": True,
+            "tracker_mutation_allowed": False,
+            "advisory": True,
+            "notice": f"{READ_ONLY_NOTICE} {ADVISORY_NOTICE}",
+        },
+        "snapshot": _jsonable(snapshot),
+        "model": _jsonable(model),
+        "cache": _jsonable(cache or {}),
+        "results": [
+            {
+                "issue": _record(issue),
+                "neighbors": [_record(item) for item in sorted(neighbors, key=_evidence_key)],
+            }
+            for issue, neighbors in results
+        ],
+    }
+
+
+def build_mentions_payload(
+    claims: Iterable[Any],
+    *,
+    snapshot: Any,
+    filters: Any | None = None,
+    summary: Any | None = None,
+) -> dict[str, Any]:
+    """Build a report of lineage claims written in tracker text, without the text itself."""
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "report_type": "mentions",
+        "policy": {
+            "read_only": True,
+            "tracker_mutation_allowed": False,
+            "advisory": True,
+            "snippets_included": False,
+            "notice": f"{READ_ONLY_NOTICE} {ADVISORY_NOTICE}",
+        },
+        "snapshot": _jsonable(snapshot),
+        "filters": _jsonable(filters or {}),
+        "summary": _jsonable(summary or {}),
+        "claims": [_jsonable(claim) for claim in claims],
+    }
+
+
 def build_batch_manifest(
     run_id: str,
     batch: int,
@@ -662,8 +721,9 @@ def render_neighbors_markdown(payload: Mapping[str, Any]) -> str:
     else:
         lines.extend(
             [
-                "| Issue | Status | Title | Similarity | Structural context |",
-                "|---|---|---|---:|---|",
+                "| Rank | Issue | Status | Title | Similarity | Reverse rank | "
+                "Structural context | Text claims |",
+                "|---:|---|---|---|---:|---:|---|---|",
             ]
         )
         for neighbor in neighbors:
@@ -672,15 +732,24 @@ def render_neighbors_markdown(payload: Mapping[str, Any]) -> str:
             context = _field(
                 neighbor, "structural_context", "relationship", default="none recorded"
             )
+            claims = _field(neighbor, "text_claims", default=[]) or []
+            claim_text = ", ".join(
+                f"{_field(claim, 'issue_id')} {_field(claim, 'kind')} "
+                f"{_field(claim, 'related_issue_id')}"
+                for claim in claims
+            )
             lines.append(
                 "| "
                 + " | ".join(
                     [
+                        _escape(_field(neighbor, "rank", default="—")),
                         _escape(_field(neighbor, "id", "issue_id", default="unknown")),
                         _escape(_field(neighbor, "status", default="unknown")),
                         _escape(_field(neighbor, "title", default="Untitled issue")),
                         score_text,
+                        _escape(_field(neighbor, "reverse_rank", default=None) or "—"),
                         _escape(context),
+                        _escape(claim_text or "—"),
                     ]
                 )
                 + " |"
@@ -688,7 +757,9 @@ def render_neighbors_markdown(payload: Mapping[str, Any]) -> str:
         lines.extend(
             [
                 "",
-                "Scores are advisory; proximity can reflect shared context rather than overlap.",
+                "Scores are advisory; proximity can reflect shared context rather than overlap. "
+                "Rank is the stronger signal: a neighbor at rank 1 whose reverse rank is also "
+                "small is worth reading even when its score looks low for this model.",
                 "",
             ]
         )
@@ -885,6 +956,10 @@ def _code_surface_markdown(analysis: Mapping[str, Any]) -> list[str]:
         + str(_field(analysis, "pairs_omitted_by_hub_guard", default=0)),
         "- Explicit-only module pairs omitted: "
         + str(_field(analysis, "pairs_omitted_by_module_guard", default=0)),
+        "- Leads below --min-confidence "
+        + str(_field(analysis, "min_confidence", default="explicit"))
+        + " omitted: "
+        + str(_field(analysis, "pairs_omitted_by_confidence_filter", default=0)),
         "- Collision leads: " + str(len(collisions)),
         "",
     ]
@@ -952,6 +1027,89 @@ def _code_surface_markdown(analysis: Mapping[str, Any]) -> list[str]:
             ]
         )
     return lines
+
+
+def render_neighbors_batch_markdown(payload: Mapping[str, Any]) -> str:
+    """Render each seed's neighbors as the single-seed report would, one after another."""
+
+    sections = []
+    for result in payload.get("results") or []:
+        sections.append(
+            render_neighbors_markdown(
+                {
+                    **payload,
+                    "report_type": "neighbors",
+                    "issue": _field(result, "issue", default={}),
+                    "neighbors": _field(result, "neighbors", default=[]),
+                }
+            )
+        )
+    return "\n".join(sections)
+
+
+def render_mentions_markdown(payload: Mapping[str, Any]) -> str:
+    """Render text lineage claims as one counts line and one table."""
+
+    summary = payload.get("summary") or {}
+    claims = payload.get("claims") or []
+    kinds = _field(summary, "kind_counts", default={}) or {}
+    lines = [
+        "# emBEADings text lineage claims",
+        "",
+        f"> {READ_ONLY_NOTICE} {ADVISORY_NOTICE}",
+        "",
+        "Records whose text names another record as a duplicate, successor, absorber, or fix. "
+        "Only IDs and claim kinds are reported; the surrounding text is not.",
+        "",
+        "- Claims found: "
+        + str(_field(summary, "claims_found", default=len(claims)))
+        + " ("
+        + (", ".join(f"{kind} {count}" for kind, count in kinds.items()) or "none")
+        + ")",
+        "- Already backed by a typed link: "
+        + str(_field(summary, "claims_with_typed_link", default=0)),
+        "- Shown: "
+        + str(len(claims))
+        + "; omitted by --limit: "
+        + str(_field(summary, "omitted_by_limit", default=0)),
+        "",
+    ]
+    if not claims:
+        lines.extend(["No text lineage claims matched the selected filters.", ""])
+    else:
+        lines.extend(
+            [
+                "| Record | Status | Claim | Names | Status | Fields | Typed link |",
+                "|---|---|---|---|---|---|---|",
+            ]
+        )
+        for claim in claims:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _escape(_field(claim, "issue_id", default="unknown")),
+                        _escape(_field(claim, "issue_status", default="unknown")),
+                        _escape(_field(claim, "kind", default="unknown")),
+                        _escape(_field(claim, "related_issue_id", default="unknown")),
+                        _escape(_field(claim, "related_status", default="unknown")),
+                        _escape(", ".join(_field(claim, "source_fields", default=[]) or [])),
+                        "yes" if _field(claim, "typed_link", default=False) else "no",
+                    ]
+                )
+                + " |"
+            )
+        lines.append("")
+    lines.extend(
+        [
+            "## What to do next",
+            "",
+            "Open both records. Where the claim still holds, record it as a typed link or close "
+            "the absorbed side; emBEADings does neither.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def render_collisions_markdown(payload: Mapping[str, Any]) -> str:
