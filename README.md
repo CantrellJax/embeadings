@@ -47,6 +47,9 @@ embead neighbors ISSUE_A ISSUE_B --ids-file more-seeds.txt
 
 # Records whose text says "absorbed by X" or "duplicate of X" with no typed link
 embead mentions
+
+# Live issues whose parent is closed or missing (structural, no model)
+embead orphans
 ```
 
 Without `pipx` or `uv`, the standard library is enough:
@@ -139,7 +142,7 @@ For `triage`, `sweep`, and `batch`, use `--output-dir DIRECTORY` when you want t
 Markdown, and per-batch artifact set. Use `--output report.json` or `--output report.md` for one
 primary report file; the extension chooses the file format independently of `--json` stdout.
 Any other `--output PATH` remains a backward-compatible directory spelling. `neighbors`,
-`collisions`, and `mentions` always treat `--output` as one atomic report file.
+`collisions`, `mentions`, and `orphans` always treat `--output` as one atomic report file.
 
 `collisions` reviews `open`, `in_progress`, and `blocked` work by default. It associates Git worktrees
 when a branch spells exactly one issue ID: the full ID, a prefix-less short form such as `abc12.4` or

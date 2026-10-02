@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/DyrtyJax/embeadings/main/schemas/v1/orphans.schema.json",
+  "title": "emBEADings orphaned issues report, schema version 1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "report_type",
+    "policy",
+    "snapshot",
+    "filters",
+    "summary",
+    "dangling_parent",
+    "parentless"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "report_type": {
+      "const": "orphans"
+    },
+    "policy": {
+      "type": "object",
+      "required": [
+        "read_only",
+        "tracker_mutation_allowed",
+        "advisory",
+        "snippets_included",
+        "notice"
+      ],
+      "properties": {
+        "read_only": {
+          "const": true
+        },
+        "tracker_mutation_allowed": {
+          "const": false
+        },
+        "advisory": {
+          "const": true
+        },
+        "snippets_included": {
+          "const": false
+        },
+        "notice": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "snapshot": {
+      "$ref": "#/$defs/snapshot"
+    },
+    "filters": {
+      "type": "object",
+      "properties": {
+        "include_parentless": {
+          "type": "boolean"
+        },
+        "include_ephemeral": {
+          "type": "boolean"
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "live_issues_scanned",
+        "dangling_parent_count",
+        "parent_status_counts",
+        "parentless_count"
+      ],
+      "properties": {
+        "live_issues_scanned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dangling_parent_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parent_status_counts": {
+          "type": "object",
+          "propertyNames": {
+            "enum": [
+              "closed",
+              "missing"
+            ]
+          },
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "parentless_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "dangling_parent": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/dangling"
+      }
+    },
+    "parentless": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/parentlessGroup"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "required": [
+        "workspace_id",
+        "beads_version"
+      ],
+      "properties": {
+        "workspace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "beads_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "tracker_name": {
+          "enum": [
+            "beads",
+            "linear"
+          ]
+        },
+        "tracker_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspace_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "relation_diagnostics": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "source_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_divergence_reasons": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "dependency_structure",
+              "issue_identity",
+              "issue_type",
+              "priority",
+              "record_count",
+              "status",
+              "update_marker"
+            ]
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "dangling": {
+      "type": "object",
+      "required": [
+        "issue_id",
+        "issue_type",
+        "status",
+        "priority",
+        "title",
+        "parent_id",
+        "parent_status"
+      ],
+      "properties": {
+        "issue_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issue_type": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priority": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "parent_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_status": {
+          "enum": [
+            "closed",
+            "missing"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "parentlessGroup": {
+      "type": "object",
+      "required": [
+        "issue_type",
+        "count",
+        "issues"
+      ],
+      "properties": {
+        "issue_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "issues": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "issue_id",
+              "status",
+              "priority",
+              "title"
+            ],
+            "properties": {
+              "issue_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1
+              },
+              "priority": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

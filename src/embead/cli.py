@@ -40,6 +40,13 @@ from .linear import LinearAdapter
 from .mentions import extract_claims
 from .mentions import kind_counts as claim_kind_counts
 from .models import IssueRecord, WorkspaceSnapshot, canonical_text, semantic_field_texts
+from .orphans import (
+    find_dangling_parents,
+    find_parentless,
+    group_parentless,
+    is_live,
+)
+from .orphans import parent_status_counts as orphan_parent_status_counts
 from .provider import HashingProvider, Model2VecProvider, provider_readiness
 from .ranking import (
     NO_STRUCTURAL_LINK,
@@ -55,6 +62,7 @@ from .reports import (
     build_mentions_payload,
     build_neighbors_batch_payload,
     build_neighbors_payload,
+    build_orphans_payload,
     build_sweep_payload,
     build_triage_payload,
     describe_conservation_balance,
@@ -63,6 +71,7 @@ from .reports import (
     render_mentions_markdown,
     render_neighbors_batch_markdown,
     render_neighbors_markdown,
+    render_orphans_markdown,
     render_sweep_markdown,
     render_triage_markdown,
 )
@@ -195,6 +204,24 @@ def _parser() -> argparse.ArgumentParser:
     _ephemeral_argument(mentions)
     mentions.add_argument("--json", action="store_true", dest="as_json")
     mentions.add_argument(
+        "--output",
+        type=Path,
+        metavar="FILE",
+        help="Atomically write this single report (JSON with --json; Markdown otherwise)",
+    )
+
+    orphans = subparsers.add_parser(
+        "orphans",
+        help="List live issues whose parent is closed or missing (no embedding model)",
+    )
+    orphans.add_argument(
+        "--include-parentless",
+        action="store_true",
+        help="Also list live issues with no parent, grouped by issue type, in a separate section",
+    )
+    _ephemeral_argument(orphans)
+    orphans.add_argument("--json", action="store_true", dest="as_json")
+    orphans.add_argument(
         "--output",
         type=Path,
         metavar="FILE",
@@ -809,6 +836,7 @@ def _capabilities(args: argparse.Namespace) -> int:
             "triage",
             "collisions",
             "mentions",
+            "orphans",
         ],
         "capabilities": list(PRODUCER_CAPABILITIES),
         "required_capabilities": ["read-only-review"],
@@ -1075,6 +1103,34 @@ def _mentions(args: argparse.Namespace) -> int:
         },
     )
     rendered = _json_text(payload) if args.as_json else render_mentions_markdown(payload)
+    if args.output:
+        _atomic_text(args.output, rendered)
+    sys.stdout.write(rendered)
+    return _divergence_exit(args, snapshot)
+
+
+def _orphans(args: argparse.Namespace) -> int:
+    snapshot, issues = _load_source(args)
+    # Parents are looked up in the full listing; ephemeral filtering only narrows what is reported.
+    reportable = [issue for issue in issues if args.include_ephemeral or not issue.ephemeral]
+    dangling = find_dangling_parents(issues, reportable=reportable)
+    parentless = find_parentless(reportable) if args.include_parentless else ()
+    payload = build_orphans_payload(
+        dangling,
+        snapshot=asdict(snapshot),
+        filters={
+            "include_parentless": bool(args.include_parentless),
+            "include_ephemeral": bool(args.include_ephemeral),
+        },
+        summary={
+            "live_issues_scanned": sum(is_live(issue) for issue in reportable),
+            "dangling_parent_count": len(dangling),
+            "parent_status_counts": orphan_parent_status_counts(dangling),
+            "parentless_count": len(parentless),
+        },
+        parentless=group_parentless(parentless),
+    )
+    rendered = _json_text(payload) if args.as_json else render_orphans_markdown(payload)
     if args.output:
         _atomic_text(args.output, rendered)
     sys.stdout.write(rendered)
@@ -1717,6 +1773,8 @@ def main(argv: list[str] | None = None) -> int:
             return _collisions(args)
         if args.command == "mentions":
             return _mentions(args)
+        if args.command == "orphans":
+            return _orphans(args)
         return _sweep(args)
     except (TrackerError, OSError, RuntimeError, ValueError) as exc:
         print(f"embead: {exc}", file=sys.stderr)

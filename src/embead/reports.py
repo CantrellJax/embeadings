@@ -267,6 +267,34 @@ def build_mentions_payload(
     }
 
 
+def build_orphans_payload(
+    dangling: Iterable[Any],
+    *,
+    snapshot: Any,
+    filters: Any | None = None,
+    summary: Any | None = None,
+    parentless: Iterable[Any] | None = None,
+) -> dict[str, Any]:
+    """Build a structural report of live issues whose parent is closed or missing."""
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "report_type": "orphans",
+        "policy": {
+            "read_only": True,
+            "tracker_mutation_allowed": False,
+            "advisory": True,
+            "snippets_included": False,
+            "notice": f"{READ_ONLY_NOTICE} {ADVISORY_NOTICE}",
+        },
+        "snapshot": _jsonable(snapshot),
+        "filters": _jsonable(filters or {}),
+        "summary": _jsonable(summary or {}),
+        "dangling_parent": [_jsonable(row) for row in dangling],
+        "parentless": [_jsonable(group) for group in parentless or ()],
+    }
+
+
 def build_batch_manifest(
     run_id: str,
     batch: int,
@@ -1045,6 +1073,105 @@ def render_neighbors_batch_markdown(payload: Mapping[str, Any]) -> str:
             )
         )
     return "\n".join(sections)
+
+
+def render_orphans_markdown(payload: Mapping[str, Any]) -> str:
+    """Render dangling-parent issues as one counts line and one table."""
+
+    summary = payload.get("summary") or {}
+    rows = payload.get("dangling_parent") or []
+    groups = payload.get("parentless") or []
+    by_parent = _field(summary, "parent_status_counts", default={}) or {}
+    lines = [
+        "# emBEADings orphaned issues",
+        "",
+        f"> {READ_ONLY_NOTICE}",
+        "",
+        "Live issues (any status except closed) whose parent is closed or missing from the "
+        "tracker. A deferred, in-progress, or blocked parent is live and is not reported.",
+        "",
+        "- Live issues scanned: " + str(_field(summary, "live_issues_scanned", default=0)),
+        "- Dangling parent: "
+        + str(_field(summary, "dangling_parent_count", default=len(rows)))
+        + " ("
+        + (", ".join(f"{status} {count}" for status, count in by_parent.items()) or "none")
+        + ")",
+        "",
+    ]
+    if not rows:
+        lines.extend(["No live issue has a closed or missing parent.", ""])
+    else:
+        lines.extend(
+            [
+                "| Parent | Parent status | Issue | Type | Status | Priority | Title |",
+                "|---|---|---|---|---|---|---|",
+            ]
+        )
+        for row in rows:
+            priority = _field(row, "priority", default=None)
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _escape(_field(row, "parent_id", default="unknown")),
+                        _escape(_field(row, "parent_status", default="unknown")),
+                        _escape(_field(row, "issue_id", default="unknown")),
+                        _escape(_field(row, "issue_type", default="")),
+                        _escape(_field(row, "status", default="unknown")),
+                        _escape("" if priority is None else f"P{priority}"),
+                        _escape(_field(row, "title", default="")),
+                    ]
+                )
+                + " |"
+            )
+        lines.append("")
+    if _field(payload.get("filters") or {}, "include_parentless", default=False):
+        lines.extend(
+            [
+                "## Live issues with no parent",
+                "",
+                "Top-level work is normal; this section is informational and separate from the "
+                "dangling-parent list above.",
+                "",
+            ]
+        )
+        if not groups:
+            lines.extend(["None.", ""])
+        for group in groups:
+            lines.extend(
+                [
+                    f"### {_escape(_field(group, 'issue_type', default='unknown'))} "
+                    f"({_field(group, 'count', default=0)})",
+                    "",
+                    "| Issue | Status | Priority | Title |",
+                    "|---|---|---|---|",
+                ]
+            )
+            for item in _field(group, "issues", default=[]) or []:
+                priority = _field(item, "priority", default=None)
+                lines.append(
+                    "| "
+                    + " | ".join(
+                        [
+                            _escape(_field(item, "issue_id", default="unknown")),
+                            _escape(_field(item, "status", default="unknown")),
+                            _escape("" if priority is None else f"P{priority}"),
+                            _escape(_field(item, "title", default="")),
+                        ]
+                    )
+                    + " |"
+                )
+            lines.append("")
+    lines.extend(
+        [
+            "## What to do next",
+            "",
+            "Open each issue and re-parent it, reopen the parent, or close the issue; "
+            "emBEADings does none of these.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def render_mentions_markdown(payload: Mapping[str, Any]) -> str:
