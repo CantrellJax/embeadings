@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "report_type": "match",
+  "policy": {
+    "read_only": true,
+    "tracker_mutation_allowed": false,
+    "advisory": true,
+    "snippets_included": false,
+    "creates_records": false,
+    "notice": "Synthetic read-only example. Similarity is a retrieval lead, not a duplicate verdict."
+  },
+  "snapshot": {
+    "workspace_id": "synthetic-workspace",
+    "beads_version": "1.0.5",
+    "workspace_path": null
+  },
+  "model": {
+    "model_id": "synthetic-local-model",
+    "model_revision": "example-revision"
+  },
+  "cache": {
+    "hits": 3,
+    "misses": 0
+  },
+  "filters": {
+    "include_closed": true,
+    "include_ephemeral": false,
+    "limit": 10,
+    "min_similarity": null
+  },
+  "summary": {
+    "candidate_count": 2,
+    "candidates_with_matches": 1,
+    "records_compared": 3
+  },
+  "candidates": [
+    {
+      "candidate_id": "cand-1",
+      "content_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "status": "matches",
+      "no_match_reason": null,
+      "records_compared": 3,
+      "matches_above_threshold": 2,
+      "notice": "Similarity is a retrieval lead, not a duplicate verdict.",
+      "neighbors": [
+        {
+          "issue_id": "demo-2",
+          "status": "closed",
+          "issue_type": "task",
+          "priority": 2,
+          "title": "Remember login state",
+          "similarity": 0.81,
+          "rank": 1,
+          "is_closed": true,
+          "parent_id": "demo-epic",
+          "parent_status": "live",
+          "resolution_evidence": {
+            "kind": "close_reason",
+            "text": "Shipped with the session work"
+          }
+        },
+        {
+          "issue_id": "demo-1",
+          "status": "open",
+          "issue_type": "task",
+          "priority": 2,
+          "title": "Persist authentication tokens",
+          "similarity": 0.74,
+          "rank": 2,
+          "is_closed": false,
+          "parent_id": null,
+          "parent_status": null,
+          "resolution_evidence": null
+        }
+      ]
+    },
+    {
+      "candidate_id": "cand-2",
+      "content_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+      "status": "no-match",
+      "no_match_reason": "below-min-similarity",
+      "records_compared": 3,
+      "matches_above_threshold": 0,
+      "notice": "Similarity is a retrieval lead, not a duplicate verdict.",
+      "neighbors": []
+    }
+  ]
+}

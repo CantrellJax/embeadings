@@ -4,6 +4,12 @@
 
 Field-report follow-ups from a native-Beads sweep of about 6,000 issues and 14 worktrees.
 
+- Add `embead match`: a read-only retrieval of the nearest existing records (all statuses by
+  default, so closed work shows as "already done" evidence) for candidate text that is not yet a
+  bead, from `--title`/`--body`/`--body-file`, `--candidate-file`, or a multi-candidate
+  `--candidates-file` JSONL. No placeholder record, no tracker mutation, and candidate text never
+  enters the vector cache. Reports per-candidate `candidate_id` and `content_hash`, and per-neighbor
+  status, structural context, and the tracker's close reason when it records one.
 - Add `embead orphans`: a read-only structural report of live issues whose parent is closed or
   missing, with no embedding model. Loads all statuses so deferred, in-progress, and blocked parents
   count as live, reports each broken link once in deterministic order, and with

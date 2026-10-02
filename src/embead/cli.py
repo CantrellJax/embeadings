@@ -37,6 +37,7 @@ from .incremental import (
     scope_since_timestamp,
 )
 from .linear import LinearAdapter
+from .match import candidate_texts, load_candidates, match_candidates
 from .mentions import extract_claims
 from .mentions import kind_counts as claim_kind_counts
 from .models import IssueRecord, WorkspaceSnapshot, canonical_text, semantic_field_texts
@@ -59,6 +60,7 @@ from .ranking import (
 from .reports import (
     build_batch_manifest,
     build_collisions_payload,
+    build_match_payload,
     build_mentions_payload,
     build_neighbors_batch_payload,
     build_neighbors_payload,
@@ -68,6 +70,7 @@ from .reports import (
     describe_conservation_balance,
     render_batch_markdown,
     render_collisions_markdown,
+    render_match_markdown,
     render_mentions_markdown,
     render_neighbors_batch_markdown,
     render_neighbors_markdown,
@@ -222,6 +225,52 @@ def _parser() -> argparse.ArgumentParser:
     _ephemeral_argument(orphans)
     orphans.add_argument("--json", action="store_true", dest="as_json")
     orphans.add_argument(
+        "--output",
+        type=Path,
+        metavar="FILE",
+        help="Atomically write this single report (JSON with --json; Markdown otherwise)",
+    )
+
+    match = subparsers.add_parser(
+        "match",
+        help="Find the nearest existing records for candidate text that is not yet a bead",
+    )
+    match.add_argument("--title", metavar="TEXT", help="Candidate title")
+    match.add_argument("--body", metavar="TEXT", help="Candidate body (optional)")
+    match.add_argument("--body-file", type=Path, metavar="FILE", help="Read the body from FILE")
+    match.add_argument(
+        "--candidate-id",
+        metavar="ID",
+        help="Caller-supplied ID echoed in the report (single-candidate modes)",
+    )
+    match.add_argument(
+        "--candidate-file",
+        type=Path,
+        metavar="FILE.json",
+        help='One candidate as JSON: {"title": ..., "body": ...}, optional "candidate_id"',
+    )
+    match.add_argument(
+        "--candidates-file",
+        type=Path,
+        metavar="FILE.jsonl",
+        help="Several candidates, one JSON object per line, each with a candidate_id",
+    )
+    match.add_argument("--limit", type=int, default=10)
+    match.add_argument(
+        "--include-closed",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Compare against closed records too (default: on; closed work is 'already done')",
+    )
+    match.add_argument(
+        "--min-similarity",
+        type=float,
+        metavar="X",
+        help="Drop neighbors scoring below X (cosine, -1 to 1)",
+    )
+    _ephemeral_argument(match)
+    match.add_argument("--json", action="store_true", dest="as_json")
+    match.add_argument(
         "--output",
         type=Path,
         metavar="FILE",
@@ -837,6 +886,7 @@ def _capabilities(args: argparse.Namespace) -> int:
             "collisions",
             "mentions",
             "orphans",
+            "match",
         ],
         "capabilities": list(PRODUCER_CAPABILITIES),
         "required_capabilities": ["read-only-review"],
@@ -1131,6 +1181,58 @@ def _orphans(args: argparse.Namespace) -> int:
         parentless=group_parentless(parentless),
     )
     rendered = _json_text(payload) if args.as_json else render_orphans_markdown(payload)
+    if args.output:
+        _atomic_text(args.output, rendered)
+    sys.stdout.write(rendered)
+    return _divergence_exit(args, snapshot)
+
+
+def _match(args: argparse.Namespace) -> int:
+    if args.limit < 1:
+        raise ValueError("--limit must be at least 1")
+    candidates = load_candidates(
+        title=args.title,
+        body=args.body,
+        body_file=args.body_file,
+        candidate_file=args.candidate_file,
+        candidates_file=args.candidates_file,
+        candidate_id=args.candidate_id,
+    )
+    snapshot, issues = _load_source(args)
+    if not args.include_ephemeral:
+        issues = tuple(issue for issue in issues if not issue.ephemeral)
+    provider = _provider(args.provider)
+    cache_path, _ = _workspace_paths(snapshot.workspace_id)
+    vectors, cache_stats = _load_vectors(issues, provider, VectorCache(cache_path))
+    # Candidate text is encoded in memory only: it never reaches the vector cache.
+    candidate_vectors = provider.encode(candidate_texts(candidates))
+    results = match_candidates(
+        candidates,
+        candidate_vectors,
+        issues,
+        vectors,
+        limit=args.limit,
+        include_closed=args.include_closed,
+        min_similarity=args.min_similarity,
+    )
+    payload = build_match_payload(
+        results,
+        snapshot=asdict(snapshot),
+        model=_model_metadata(provider),
+        cache=cache_stats,
+        filters={
+            "include_closed": bool(args.include_closed),
+            "include_ephemeral": bool(args.include_ephemeral),
+            "limit": args.limit,
+            "min_similarity": args.min_similarity,
+        },
+        summary={
+            "candidate_count": len(results),
+            "candidates_with_matches": sum(item["status"] == "matches" for item in results),
+            "records_compared": results[0]["records_compared"] if results else 0,
+        },
+    )
+    rendered = _json_text(payload) if args.as_json else render_match_markdown(payload)
     if args.output:
         _atomic_text(args.output, rendered)
     sys.stdout.write(rendered)
@@ -1775,6 +1877,8 @@ def main(argv: list[str] | None = None) -> int:
             return _mentions(args)
         if args.command == "orphans":
             return _orphans(args)
+        if args.command == "match":
+            return _match(args)
         return _sweep(args)
     except (TrackerError, OSError, RuntimeError, ValueError) as exc:
         print(f"embead: {exc}", file=sys.stderr)

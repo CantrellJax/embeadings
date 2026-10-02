@@ -1,0 +1,342 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/DyrtyJax/embeadings/main/schemas/v1/match.schema.json",
+  "title": "emBEADings candidate match report, schema version 1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "report_type",
+    "policy",
+    "snapshot",
+    "model",
+    "cache",
+    "filters",
+    "summary",
+    "candidates"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "report_type": {
+      "const": "match"
+    },
+    "policy": {
+      "type": "object",
+      "required": [
+        "read_only",
+        "tracker_mutation_allowed",
+        "advisory",
+        "snippets_included",
+        "creates_records",
+        "notice"
+      ],
+      "properties": {
+        "read_only": {
+          "const": true
+        },
+        "tracker_mutation_allowed": {
+          "const": false
+        },
+        "advisory": {
+          "const": true
+        },
+        "snippets_included": {
+          "const": false
+        },
+        "creates_records": {
+          "const": false
+        },
+        "notice": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "snapshot": {
+      "$ref": "#/$defs/snapshot"
+    },
+    "model": {
+      "type": "object",
+      "required": [
+        "model_id",
+        "model_revision"
+      ],
+      "properties": {
+        "model_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model_revision": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "cache": {
+      "type": "object"
+    },
+    "filters": {
+      "type": "object",
+      "properties": {
+        "include_closed": {
+          "type": "boolean"
+        },
+        "include_ephemeral": {
+          "type": "boolean"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "min_similarity": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "candidate_count",
+        "candidates_with_matches",
+        "records_compared"
+      ],
+      "properties": {
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "candidates_with_matches": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "records_compared": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/candidate"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "required": [
+        "workspace_id",
+        "beads_version"
+      ],
+      "properties": {
+        "workspace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "beads_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "tracker_name": {
+          "enum": [
+            "beads",
+            "linear"
+          ]
+        },
+        "tracker_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspace_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "relation_diagnostics": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "source_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_divergence_reasons": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "dependency_structure",
+              "issue_identity",
+              "issue_type",
+              "priority",
+              "record_count",
+              "status",
+              "update_marker"
+            ]
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "candidate": {
+      "type": "object",
+      "required": [
+        "candidate_id",
+        "content_hash",
+        "status",
+        "no_match_reason",
+        "records_compared",
+        "notice",
+        "neighbors"
+      ],
+      "properties": {
+        "candidate_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "status": {
+          "enum": [
+            "matches",
+            "no-match"
+          ]
+        },
+        "no_match_reason": {
+          "enum": [
+            "no-records-in-scope",
+            "below-min-similarity",
+            null
+          ]
+        },
+        "records_compared": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "matches_above_threshold": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "notice": {
+          "type": "string",
+          "minLength": 1
+        },
+        "neighbors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/neighbor"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "neighbor": {
+      "type": "object",
+      "required": [
+        "issue_id",
+        "status",
+        "issue_type",
+        "priority",
+        "title",
+        "similarity",
+        "rank",
+        "is_closed",
+        "parent_id",
+        "parent_status",
+        "resolution_evidence"
+      ],
+      "properties": {
+        "issue_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issue_type": {
+          "type": "string"
+        },
+        "priority": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "similarity": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "is_closed": {
+          "type": "boolean"
+        },
+        "parent_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parent_status": {
+          "enum": [
+            "live",
+            "closed",
+            "missing",
+            null
+          ]
+        },
+        "resolution_evidence": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "text"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "close_reason"
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": true
+            }
+          ]
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}
