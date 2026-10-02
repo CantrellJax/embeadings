@@ -109,7 +109,7 @@ multi-artifact `triage`, `sweep`, and `batch` commands, `--output-dir DIRECTORY`
 JSON, Markdown, and per-batch set; `--output REPORT.json` or `--output REPORT.md` writes only the
 primary report in the extension-selected format. Extensionless `--output PATH` remains a
 backward-compatible directory spelling, as does any other non-report suffix. `neighbors`,
-`collisions`, `mentions`, and `orphans` use `--output FILE` for their
+`collisions`, `mentions`, `orphans`, and `match` use `--output FILE` for their
 single atomic report, whose format follows `--json`. `triage` is the opinionated bounded front door,
 while `sweep` exposes research and policy controls. `batch` is currently an alias for a synchronous
 sweep, not a separate scheduler.
@@ -226,6 +226,43 @@ no parent at all under a separate `parentless` field, grouped by `issue_type`, s
 are normal and are never mixed into the dangling-parent list. Ephemeral records are not reported
 unless `--include-ephemeral` is set, but they still count as parents. The report only reads; it
 reparents, reopens, and closes nothing.
+
+### `match`
+
+```bash
+embead match --title TITLE [--body TEXT | --body-file FILE] [--candidate-id ID]
+embead match --candidate-file FILE.json
+embead match --candidates-file FILE.jsonl
+             [--limit N] [--include-closed | --no-include-closed] [--min-similarity X]
+             [--include-ephemeral] [--json] [--output FILE]
+```
+
+Finds the nearest existing records for candidate text that is not yet a record, where `neighbors`
+needs a seed already in the snapshot. Exactly one input mode is used: `--title` with an optional
+body; `--candidate-file` holding `{"title", "body"}` (optional `candidate_id`); or `--candidates-file`
+with one JSON object per line, each carrying a caller-supplied `candidate_id`. `candidate_id`
+defaults to `candidate-1` in the single-candidate modes, must be unique, and is echoed unchanged.
+
+The candidate is embedded with the same pinned local model and canonical-text rules as a bead record
+(the body plays the role of the description) and compared with the cached whole-record vectors.
+Closed records are included by default, because a closed neighbor is "already done" evidence;
+`--no-include-closed` drops them. Ephemeral records are excluded unless `--include-ephemeral`.
+`--limit` defaults to 10 (minimum 1). `--min-similarity X` drops neighbors scoring below X.
+
+The report (`report_type` `match`) has `candidates`, one entry per input in input order:
+`candidate_id`; `content_hash` (SHA-256 over the exact title and body, so a caller can detect a
+changed payload); `status` (`matches` or `no-match`); `no_match_reason` (`null`,
+`no-records-in-scope`, or `below-min-similarity`); `records_compared`; `matches_above_threshold`;
+`notice`; and `neighbors`. Each neighbor has `issue_id`, `status`, `issue_type`, `priority`, `title`,
+`similarity`, `rank`, `is_closed`, `parent_id`, `parent_status` (`null`, `live`, `closed`, or
+`missing`), and `resolution_evidence`: `{"kind": "close_reason", "text": ...}` for a closed neighbor
+whose tracker recorded a close reason, otherwise `null`. It is never inferred. Neighbors are ordered
+by similarity descending, then `issue_id`. `policy` adds `creates_records: false` to the usual
+read-only constants. Similarity is a retrieval lead, not a duplicate verdict.
+
+The command reads the tracker only through the allowlisted read-only calls, creates no placeholder
+record, and keeps candidate text in memory: it is not written to the vector cache or any reports
+directory, and the report carries the hash and ID, not the text. Candidate vectors are never cached.
 
 ### Readiness and capability inspection
 

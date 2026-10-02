@@ -116,6 +116,7 @@ def test_capabilities_is_corpus_free_and_machine_readable(monkeypatch, capsys) -
             "collisions",
             "mentions",
             "orphans",
+            "match",
         ],
         "capabilities": [
             "additive-fields",

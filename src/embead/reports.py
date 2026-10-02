@@ -295,6 +295,37 @@ def build_orphans_payload(
     }
 
 
+def build_match_payload(
+    candidates: Iterable[Any],
+    *,
+    snapshot: Any,
+    model: Any,
+    cache: Any | None = None,
+    filters: Any | None = None,
+    summary: Any | None = None,
+) -> dict[str, Any]:
+    """Build the report for candidate text matched against existing records (no new record)."""
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "report_type": "match",
+        "policy": {
+            "read_only": True,
+            "tracker_mutation_allowed": False,
+            "advisory": True,
+            "snippets_included": False,
+            "creates_records": False,
+            "notice": f"{READ_ONLY_NOTICE} {ADVISORY_NOTICE}",
+        },
+        "snapshot": _jsonable(snapshot),
+        "model": _jsonable(model),
+        "cache": _jsonable(cache or {}),
+        "filters": _jsonable(filters or {}),
+        "summary": _jsonable(summary or {}),
+        "candidates": [_jsonable(candidate) for candidate in candidates],
+    }
+
+
 def build_batch_manifest(
     run_id: str,
     batch: int,
@@ -1073,6 +1104,74 @@ def render_neighbors_batch_markdown(payload: Mapping[str, Any]) -> str:
             )
         )
     return "\n".join(sections)
+
+
+def render_match_markdown(payload: Mapping[str, Any]) -> str:
+    """Render each candidate's nearest existing records as one table per candidate."""
+
+    summary = payload.get("summary") or {}
+    lines = [
+        "# emBEADings candidate match",
+        "",
+        f"> {READ_ONLY_NOTICE}",
+        "",
+        "Similarity is a retrieval lead, not a duplicate verdict. Candidate text was not added "
+        "to the tracker, the index, or the vector cache.",
+        "",
+        *_metadata_lines(payload),
+        f"- Candidates: {_field(summary, 'candidate_count', default=0)} "
+        f"({_field(summary, 'candidates_with_matches', default=0)} with matches)",
+        "",
+    ]
+    for candidate in payload.get("candidates") or []:
+        rows = _field(candidate, "neighbors", default=[]) or []
+        lines.extend(
+            [
+                f"## {_escape(_field(candidate, 'candidate_id', default='unknown'))}",
+                "",
+                f"- Content hash: `{_escape(_field(candidate, 'content_hash', default=''))}`",
+                f"- Status: {_escape(_field(candidate, 'status', default='unknown'))}",
+                f"- Records compared: {_field(candidate, 'records_compared', default=0)}",
+            ]
+        )
+        reason = _field(candidate, "no_match_reason", default=None)
+        if reason:
+            lines.append(f"- No match because: {_escape(reason)}")
+        lines.append("")
+        if not rows:
+            lines.extend(["No existing record met the criteria.", ""])
+            continue
+        lines.extend(
+            [
+                "| Rank | Similarity | Issue | Status | Type | Priority | Parent | Title "
+                "| Close reason |",
+                "|---|---|---|---|---|---|---|---|---|",
+            ]
+        )
+        for row in rows:
+            priority = _field(row, "priority", default=None)
+            parent = _field(row, "parent_id", default=None)
+            parent_status = _field(row, "parent_status", default=None)
+            evidence = _field(row, "resolution_evidence", default=None)
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _escape(_field(row, "rank", default="")),
+                        f"{float(_field(row, 'similarity', default=0.0)):.3f}",
+                        _escape(_field(row, "issue_id", default="unknown")),
+                        _escape(_field(row, "status", default="unknown")),
+                        _escape(_field(row, "issue_type", default="")),
+                        _escape("" if priority is None else f"P{priority}"),
+                        _escape("" if not parent else f"{parent} ({parent_status})"),
+                        _escape(_field(row, "title", default="")),
+                        _escape(_field(evidence, "text", default="") if evidence else ""),
+                    ]
+                )
+                + " |"
+            )
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def render_orphans_markdown(payload: Mapping[str, Any]) -> str:

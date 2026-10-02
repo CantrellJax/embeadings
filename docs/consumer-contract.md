@@ -2,7 +2,7 @@
 
 emBEADings artifacts are read-only, advisory evidence. The JSON Schemas in
 [`schemas/v1`](../schemas/v1/) describe the stable machine-readable envelope for the `neighbors`,
-`neighbors-batch`, `batch`, `sweep`, `triage`, `collisions`, `mentions`, and `orphans` report types. The files in [`examples`](../examples/) are synthetic
+`neighbors-batch`, `batch`, `sweep`, `triage`, `collisions`, `mentions`, `orphans`, and `match` report types. The files in [`examples`](../examples/) are synthetic
 and contain no private tracker or source content.
 
 ## Version negotiation
@@ -220,6 +220,11 @@ copying issue text or identifiers into diagnostics.
 Consumers may filter, visualize, or route valid artifacts. They must not reinterpret a similarity
 score as a tracker dependency, status transition, duplicate decision, or authorization to edit source.
 
+`match` reports retrieval leads for candidate text that is not a record. Treat each candidate's
+`content_hash` as its change detector and `candidate_id` as the caller's own key; a `match` neighbor
+with `resolution_evidence` shows only what the tracker recorded as a close reason, and a `null` there
+means none was recorded. Similarity is a retrieval lead, not a duplicate verdict.
+
 ## Schema locations
 
 | Report type | Schema | Example |
@@ -228,6 +233,7 @@ score as a tracker dependency, status transition, duplicate decision, or authori
 | `neighbors-batch` | [`neighbors-batch.schema.json`](../schemas/v1/neighbors-batch.schema.json) | [`neighbors-batch.json`](../examples/neighbors-batch.json) |
 | `mentions` | [`mentions.schema.json`](../schemas/v1/mentions.schema.json) | [`mentions.json`](../examples/mentions.json) |
 | `orphans` | [`orphans.schema.json`](../schemas/v1/orphans.schema.json) | [`orphans.json`](../examples/orphans.json) |
+| `match` | [`match.schema.json`](../schemas/v1/match.schema.json) | [`match.json`](../examples/match.json) |
 | `batch` | [`batch.schema.json`](../schemas/v1/batch.schema.json) | [`batch.json`](../examples/batch.json) |
 | `sweep` | [`sweep.schema.json`](../schemas/v1/sweep.schema.json) | [`sweep.json`](../examples/sweep.json) |
 | `triage` | [`triage.schema.json`](../schemas/v1/triage.schema.json) | [`triage.json`](../examples/triage.json) |
