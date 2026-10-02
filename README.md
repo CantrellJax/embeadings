@@ -178,6 +178,14 @@ embead --source linear --linear-team ENG collisions
 selected team through Linear GraphQL and does not reuse credentials held by an MCP or agent host. See
 the [Linear adapter contract](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/docs/linear.md).
 
+## Companion: emBEADify
+
+emBEADings finds the leads and never writes. When a human or coordinator has reviewed them and wants
+to act, [emBEADify](https://github.com/CantrellJax/embeadify) is the write-side companion: it turns
+reviewed decisions into parallel, dry-run-by-default, undoable Beads updates, and it can draft a
+commented decisions file from an `embead` report. Keeping the two apart is deliberate, so emBEADings
+stays read-only.
+
 ## Privacy and data boundary
 
 - Tracker adapters contain no mutation operations.
