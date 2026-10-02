@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "report_type": "orphans",
+  "policy": {
+    "read_only": true,
+    "tracker_mutation_allowed": false,
+    "advisory": true,
+    "snippets_included": false,
+    "notice": "Synthetic read-only example. Verify against current project state."
+  },
+  "snapshot": {
+    "workspace_id": "synthetic-workspace",
+    "beads_version": "1.0.5",
+    "workspace_path": null
+  },
+  "filters": {
+    "include_parentless": true,
+    "include_ephemeral": false
+  },
+  "summary": {
+    "live_issues_scanned": 5,
+    "dangling_parent_count": 2,
+    "parent_status_counts": {
+      "closed": 1,
+      "missing": 1
+    },
+    "parentless_count": 2
+  },
+  "dangling_parent": [
+    {
+      "issue_id": "demo-3",
+      "issue_type": "task",
+      "status": "open",
+      "priority": 2,
+      "title": "Add retry to export job",
+      "parent_id": "demo-1",
+      "parent_status": "closed"
+    },
+    {
+      "issue_id": "demo-4",
+      "issue_type": "bug",
+      "status": "deferred",
+      "priority": 3,
+      "title": "Fix stale cache on logout",
+      "parent_id": "demo-9",
+      "parent_status": "missing"
+    }
+  ],
+  "parentless": [
+    {
+      "issue_type": "epic",
+      "count": 1,
+      "issues": [
+        {
+          "issue_id": "demo-2",
+          "status": "in_progress",
+          "priority": 1,
+          "title": "Improve export reliability"
+        }
+      ]
+    },
+    {
+      "issue_type": "task",
+      "count": 1,
+      "issues": [
+        {
+          "issue_id": "demo-5",
+          "status": "open",
+          "priority": 2,
+          "title": "Document export formats"
+        }
+      ]
+    }
+  ]
+}

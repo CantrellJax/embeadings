@@ -4,6 +4,10 @@
 
 Field-report follow-ups from a native-Beads sweep of about 6,000 issues and 14 worktrees.
 
+- Add `embead orphans`: a read-only structural report of live issues whose parent is closed or
+  missing, with no embedding model. Loads all statuses so deferred, in-progress, and blocked parents
+  count as live, reports each broken link once in deterministic order, and with
+  `--include-parentless` lists top-level work separately, grouped by issue type.
 - Add `embead mentions`: records whose text names another as a duplicate, successor, absorber, or
   fix ("absorbed by X", "superseded by X", "duplicate of X", "fixed by X") with no typed link.
   Resolves full and prefix-less IDs, skips denials, scans notes and close reasons, and reports only

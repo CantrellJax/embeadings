@@ -98,6 +98,7 @@ embead sweep [--size 9]
 embead batch [--size 9]
 embead collisions [--worktree-map ISSUE_ID=PATH] [--branch-pattern REGEX] [--min-confidence LEVEL]
 embead mentions [--include-linked] [--include-closed] [--include-mentions] [--limit 50]
+embead orphans [--include-parentless] [--include-ephemeral]
 embead readiness [--offline]
 embead doctor [--offline]
 embead capabilities [--json]
@@ -108,7 +109,7 @@ multi-artifact `triage`, `sweep`, and `batch` commands, `--output-dir DIRECTORY`
 JSON, Markdown, and per-batch set; `--output REPORT.json` or `--output REPORT.md` writes only the
 primary report in the extension-selected format. Extensionless `--output PATH` remains a
 backward-compatible directory spelling, as does any other non-report suffix. `neighbors`,
-`collisions`, and `mentions` use `--output FILE` for their
+`collisions`, `mentions`, and `orphans` use `--output FILE` for their
 single atomic report, whose format follows `--json`. `triage` is the opinionated bounded front door,
 while `sweep` exposes research and policy controls. `batch` is currently an alias for a synchronous
 sweep, not a separate scheduler.
@@ -203,6 +204,28 @@ notes and the Beads close reason, but only IDs, the claim kind, and the field na
 By default only active records' claims are listed; `--include-closed` adds closed claimants,
 `--include-linked` adds claims a typed link already backs, and `--include-mentions` adds bare
 mentions whose spelling carries a dash or dot. The report does not load an embedding model.
+
+### `orphans`
+
+```bash
+embead orphans [--include-parentless] [--include-ephemeral]
+```
+
+A structural hygiene report that needs no embedding model. It lists live issues (every status
+except `closed`: `open`, `in_progress`, `blocked`, and `deferred` all count) whose parent is closed
+or absent from the tracker (`parent_status` is `closed` or `missing`). The whole workspace is loaded
+with closed records included, because a parent that is deferred, in progress, or blocked is a live
+parent: an open-only listing hides those parents and makes every one of their children look
+orphaned.
+
+Only the nearest link is judged, so each broken link appears once: a child of a live parent is not
+reported even when that parent is itself orphaned. Rows carry `issue_id`, `issue_type`, `status`,
+`priority`, `title`, `parent_id`, and `parent_status`, ordered by `parent_id` then `issue_id`, under
+`dangling_parent`, with `summary` counts. `--include-parentless` additionally lists live issues with
+no parent at all under a separate `parentless` field, grouped by `issue_type`, since top-level epics
+are normal and are never mixed into the dangling-parent list. Ephemeral records are not reported
+unless `--include-ephemeral` is set, but they still count as parents. The report only reads; it
+reparents, reopens, and closes nothing.
 
 ### Readiness and capability inspection
 

@@ -16,7 +16,7 @@
     },
     "report_types": {
       "type": "array",
-      "items": { "enum": ["neighbors", "neighbors-batch", "batch", "sweep", "triage", "collisions", "mentions"] },
+      "items": { "enum": ["neighbors", "neighbors-batch", "batch", "sweep", "triage", "collisions", "mentions", "orphans"] },
       "minItems": 1,
       "uniqueItems": true
     },

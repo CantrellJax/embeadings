@@ -2,7 +2,7 @@
 
 emBEADings artifacts are read-only, advisory evidence. The JSON Schemas in
 [`schemas/v1`](../schemas/v1/) describe the stable machine-readable envelope for the `neighbors`,
-`neighbors-batch`, `batch`, `sweep`, `triage`, `collisions`, and `mentions` report types. The files in [`examples`](../examples/) are synthetic
+`neighbors-batch`, `batch`, `sweep`, `triage`, `collisions`, `mentions`, and `orphans` report types. The files in [`examples`](../examples/) are synthetic
 and contain no private tracker or source content.
 
 ## Version negotiation
@@ -130,7 +130,7 @@ Different live/export digests produce a non-content warning even when record cou
 Divergence is a warning, not a failure: live data is always used and the report is always written.
 For CI, the global `--fail-on-divergence` flag turns a non-empty `source_divergence_reasons` into
 exit code 3 after the report is emitted, keeping it distinguishable from exit code 2 (error) and
-exit code 0 (clean). `neighbors`, `collisions`, `mentions`, `triage`, `sweep`, and `batch` honor it; `doctor`
+exit code 0 (clean). `neighbors`, `collisions`, `mentions`, `orphans`, `triage`, `sweep`, and `batch` honor it; `doctor`
 does not, because it deliberately never loads the issue corpus.
 
 Linear snapshots may include additive `relation_diagnostics`. It conserves the workspace relation
@@ -173,7 +173,7 @@ object. Core emBEADings does not launch a dispatcher or grant it tracker access.
   "protocol_version": 1,
   "role": "producer",
   "schema_versions": [1],
-  "report_types": ["neighbors", "neighbors-batch", "batch", "sweep", "triage", "collisions", "mentions"],
+  "report_types": ["neighbors", "neighbors-batch", "batch", "sweep", "triage", "collisions", "mentions", "orphans"],
   "capabilities": ["additive-fields", "advisory-evidence", "read-only-review", "code-surface-pointers"],
   "required_capabilities": ["read-only-review"]
 }
@@ -227,6 +227,7 @@ score as a tracker dependency, status transition, duplicate decision, or authori
 | `neighbors` | [`neighbors.schema.json`](../schemas/v1/neighbors.schema.json) | [`neighbors.json`](../examples/neighbors.json) |
 | `neighbors-batch` | [`neighbors-batch.schema.json`](../schemas/v1/neighbors-batch.schema.json) | [`neighbors-batch.json`](../examples/neighbors-batch.json) |
 | `mentions` | [`mentions.schema.json`](../schemas/v1/mentions.schema.json) | [`mentions.json`](../examples/mentions.json) |
+| `orphans` | [`orphans.schema.json`](../schemas/v1/orphans.schema.json) | [`orphans.json`](../examples/orphans.json) |
 | `batch` | [`batch.schema.json`](../schemas/v1/batch.schema.json) | [`batch.json`](../examples/batch.json) |
 | `sweep` | [`sweep.schema.json`](../schemas/v1/sweep.schema.json) | [`sweep.json`](../examples/sweep.json) |
 | `triage` | [`triage.schema.json`](../schemas/v1/triage.schema.json) | [`triage.json`](../examples/triage.json) |

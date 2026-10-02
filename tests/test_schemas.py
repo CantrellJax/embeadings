@@ -121,6 +121,7 @@ def _load(directory: Path, name: str) -> dict[str, Any]:
         "triage",
         "collisions",
         "mentions",
+        "orphans",
         "capabilities",
         "checkpoint",
     ],
@@ -310,7 +311,7 @@ def test_version_one_accepts_legacy_review_budget_shape() -> None:
 
 
 @pytest.mark.parametrize(
-    "name", ["neighbors", "neighbors-batch", "batch", "sweep", "collisions", "mentions"]
+    "name", ["neighbors", "neighbors-batch", "batch", "sweep", "collisions", "mentions", "orphans"]
 )
 def test_version_one_accepts_generic_linear_snapshot(name: str) -> None:
     payload = _load(EXAMPLES, f"{name}.json")
