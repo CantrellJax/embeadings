@@ -62,7 +62,7 @@ _VERBS = (
         r"\s+(?:by|in|via)",
     ),
     ("supersedes", r"supersedes|replaces"),
-    ("absorbs", r"absorbs|subsumes|folds\s+in"),
+    ("absorbs", r"absorbs|subsumes|folds\s+in|folded\s+in"),
     ("continued-in", r"continued\s+in|continues\s+in|tracked\s+in|split\s+(?:to|into)"),
 )
 _CLAIM_RES = tuple((kind, re.compile(rf"\b(?:{verbs})\b")) for kind, verbs in _VERBS)

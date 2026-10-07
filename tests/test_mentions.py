@@ -118,3 +118,18 @@ def test_claim_object_may_follow_a_short_noun_phrase_within_the_clause() -> None
         ("demo-abc12", "absorbed-by", "demo-xyz34.1"),
         ("demo-mmm55", "absorbed-by", "demo-qqq99"),
     ]
+
+
+def test_fold_notes_read_as_lineage_claims() -> None:
+    issues = (
+        IssueRecord(id="proj-aaaa1", title="a", status="open", notes="FOLDED into proj-bbbb2 (x)."),
+        IssueRecord(id="proj-bbbb2", title="b", status="open", notes="Folded in: proj-cccc3"),
+        IssueRecord(id="proj-cccc3", title="c", status="open"),
+    )
+
+    claims = {(c.issue_id, c.kind, c.related_issue_id) for c in extract_claims(issues, issues)}
+
+    assert claims == {
+        ("proj-aaaa1", "absorbed-by", "proj-bbbb2"),
+        ("proj-bbbb2", "absorbs", "proj-cccc3"),
+    }

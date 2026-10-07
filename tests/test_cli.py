@@ -1550,7 +1550,12 @@ def test_neighbors_batch_loads_the_corpus_once(monkeypatch, tmp_path, capsys) ->
     ids_file = tmp_path / "seeds.txt"
     ids_file.write_text("# seeds\ndemo-2\n\ndemo-1  # repeated seed is ignored\n")
 
-    assert cli.main(["neighbors", "demo-1", "--ids-file", str(ids_file), "--json"]) == 0
+    assert (
+        cli.main(
+            ["neighbors", "demo-1", "--ids-file", str(ids_file), "--no-exclude-seeds", "--json"]
+        )
+        == 0
+    )
     payload = json.loads(capsys.readouterr().out)
 
     assert loads == [1]
@@ -1561,7 +1566,7 @@ def test_neighbors_batch_loads_the_corpus_once(monkeypatch, tmp_path, capsys) ->
         {"issue_id": "demo-2", "related_issue_id": "demo-1", "kind": "absorbed-by"}
     ]
 
-    assert cli.main(["neighbors", "demo-1", "demo-2"]) == 0
+    assert cli.main(["neighbors", "demo-1", "demo-2", "--no-exclude-seeds"]) == 0
     rendered = capsys.readouterr().out
     assert rendered.count("# Semantic neighbors for") == 2
     assert "demo-2 absorbed-by demo-1" in rendered
@@ -1645,3 +1650,136 @@ def test_code_surface_flags_reach_the_analysis(monkeypatch, tmp_path) -> None:
         r"lane/(?P<id>[a-z0-9.]+)"
     ]
     assert cli.main(["collisions", "--branch-pattern", "lane/.*"]) == 2
+
+
+SPRINT_ISSUES = (
+    IssueRecord(id="demo-epic", title="Swaps sprint", status="open", issue_type="epic"),
+    IssueRecord(
+        id="demo-1",
+        title="Swap picker validates coverage",
+        description="Swap picker checks coverage before the swap",
+        status="in_progress",
+        parent_id="demo-epic",
+    ),
+    IssueRecord(
+        id="demo-2",
+        title="Swap picker validates coverage twice",
+        description="Swap picker checks coverage before the swap",
+        status="in_progress",
+        parent_id="demo-epic",
+    ),
+    IssueRecord(
+        id="demo-3",
+        title="Swap picker coverage check",
+        description="Swap picker checks coverage before the swap",
+        status="in_progress",
+        assignee="lane-7",
+        labels=("owner-run",),
+    ),
+    IssueRecord(
+        id="demo-4",
+        title="Swap picker coverage on prod",
+        description="Swap picker checks coverage before the swap",
+        status="open",
+        notes="FOLDED into demo-1 (one fix).",
+    ),
+    IssueRecord(
+        id="demo-5",
+        title="Swap picker coverage sibling",
+        description="Swap picker checks coverage before the swap",
+        status="open",
+        parent_id="demo-epic",
+    ),
+)
+
+
+class SprintAdapter:
+    def load(self):
+        return WorkspaceSnapshot("workspace-test", "1.0.5", "/tmp/demo/.beads"), SPRINT_ISSUES
+
+
+def _sprint_neighbors(monkeypatch, tmp_path, capsys, *argv):
+    _configure(monkeypatch, tmp_path)
+    monkeypatch.setattr(cli, "BeadsAdapter", SprintAdapter)
+    assert cli.main(["neighbors", *argv]) == 0
+    return capsys.readouterr().out
+
+
+def test_neighbors_batch_excludes_seeds_by_default(monkeypatch, tmp_path, capsys) -> None:
+    payload = json.loads(
+        _sprint_neighbors(monkeypatch, tmp_path, capsys, "demo-1", "demo-2", "--json")
+    )
+
+    for result in payload["results"]:
+        ids = {item["id"] for item in result["neighbors"]}
+        assert not ids & {"demo-1", "demo-2"}
+        assert result["dropped"]["seed"] == 1
+        assert result["score_baseline"]["population"] == 5
+    assert payload["filters"]["exclude_seeds"] is True
+    merged = payload["merged_neighbors"]
+    assert [row["best_similarity"] for row in merged] == sorted(
+        (row["best_similarity"] for row in merged), reverse=True
+    )
+    assert all(row["seeds"] == ["demo-1", "demo-2"] for row in merged)
+
+    single = json.loads(_sprint_neighbors(monkeypatch, tmp_path, capsys, "demo-1", "--json"))
+    assert single["filters"]["exclude_seeds"] is False
+    assert "score_baseline" in single
+
+
+def test_neighbors_exclude_siblings_and_soft_links(monkeypatch, tmp_path, capsys) -> None:
+    payload = json.loads(
+        _sprint_neighbors(
+            monkeypatch,
+            tmp_path,
+            capsys,
+            "demo-1",
+            "--exclude-siblings",
+            "--respect-soft-links",
+            "--json",
+        )
+    )
+
+    assert {item["id"] for item in payload["neighbors"]} == {"demo-3", "demo-epic"}
+    assert payload["dropped"] == {"seed": 0, "sibling": 2, "soft_link": 1, "structural_link": 0}
+
+
+def test_neighbors_table_dedupes_and_flags_guards(monkeypatch, tmp_path, capsys) -> None:
+    output = _sprint_neighbors(
+        monkeypatch, tmp_path, capsys, "demo-1", "demo-2", "--format", "table", "--limit", "9"
+    )
+    lines = output.splitlines()
+
+    assert lines[0].startswith("# Read-only")
+    assert "Score baseline" in lines[1]
+    header = lines[2]
+    assert header.split()[:4] == ["SCORE", "SEEDS", "BEST", "SEED"]
+    rows = {line.split()[3]: line for line in lines[3:]}
+    assert set(rows) == {"demo-3", "demo-4", "demo-5", "demo-epic"}
+    assert "label:owner-run" in rows["demo-3"]
+    assert "in-progress-assigned" in rows["demo-3"]
+    assert "lane-7" in rows["demo-3"]
+    assert "keyword:prod" in rows["demo-4"]
+
+
+def test_neighbors_rejects_conflicting_formats(monkeypatch, tmp_path, capsys) -> None:
+    _configure(monkeypatch, tmp_path)
+
+    assert cli.main(["neighbors", "demo-1", "--json", "--format", "table"]) == 2
+    assert "--json conflicts" in capsys.readouterr().err
+
+
+def test_schema_lists_and_describes_reports(capsys) -> None:
+    assert cli.main(["schema"]) == 0
+    assert "neighbors-batch" in capsys.readouterr().out.split()
+
+    assert cli.main(["schema", "neighbors-batch"]) == 0
+    fields = capsys.readouterr().out
+    assert "* results[].neighbors[].similarity  (number)  Cosine similarity" in fields
+    assert "merged_neighbors[].best_seed" in fields
+
+    assert cli.main(["schema", "neighbors", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["title"].startswith("emBEADings neighbors")
+
+    assert cli.main(["schema", "nope"]) == 2
+    assert "unknown report type" in capsys.readouterr().err

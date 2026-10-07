@@ -42,10 +42,12 @@ def record_fingerprint(issue: IssueRecord) -> str:
     """Hash review-relevant state without placing issue text in the checkpoint."""
 
     values = asdict(issue)
-    # Preserve legacy/Linear fingerprints when the Beads-only optional field is
+    # Preserve legacy/Linear fingerprints when a Beads-only optional field is
     # absent while still observing every transition to, from, or between reasons.
     if not issue.close_reason:
         values.pop("close_reason")
+    if not issue.assignee:
+        values.pop("assignee")
     if issue.updated_at:
         values["updated_at"] = normalize_rfc3339(issue.updated_at)
     encoded = json.dumps(values, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
