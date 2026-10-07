@@ -373,6 +373,40 @@ def build_match_payload(
     }
 
 
+def build_superseded_payload(
+    named: Iterable[Any],
+    similar: Iterable[Any],
+    *,
+    changes: Iterable[Any],
+    snapshot: Any,
+    model: Any,
+    cache: Any | None = None,
+    filters: Any | None = None,
+    summary: Any | None = None,
+) -> dict[str, Any]:
+    """Build the report of live records that merged changes may already have done."""
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "report_type": "superseded",
+        "policy": {
+            "read_only": True,
+            "tracker_mutation_allowed": False,
+            "advisory": True,
+            "snippets_included": False,
+            "notice": f"{READ_ONLY_NOTICE} {ADVISORY_NOTICE}",
+        },
+        "snapshot": _jsonable(snapshot),
+        "model": _jsonable(model),
+        "cache": _jsonable(cache or {}),
+        "filters": _jsonable(filters or {}),
+        "summary": _jsonable(summary or {}),
+        "changes": [_jsonable(change) for change in changes],
+        "named": [_jsonable(row) for row in named],
+        "similar": [_jsonable(row) for row in similar],
+    }
+
+
 def build_batch_manifest(
     run_id: str,
     batch: int,
@@ -1283,6 +1317,85 @@ def render_match_markdown(payload: Mapping[str, Any]) -> str:
             )
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def render_superseded_markdown(payload: Mapping[str, Any]) -> str:
+    """Render named and similar records, each with the change that is its evidence."""
+
+    summary = payload.get("summary") or {}
+    lines = [
+        "# Live records that merged changes may already have done",
+        "",
+        f"> {READ_ONLY_NOTICE} {ADVISORY_NOTICE}",
+        "",
+        *_metadata_lines(payload),
+        f"- Changes read: {_field(summary, 'changes_read', default=0)}; "
+        f"records compared: {_field(summary, 'records_compared', default=0)}",
+        "",
+    ]
+
+    def table(rows: list[Any], *, similar: bool) -> None:
+        header = "| Record | Status | Pri | Guards | Change | "
+        header += "Score | Rank in change | Shared identifiers | Title |" if similar else "Title |"
+        lines.append(header)
+        lines.append("|" + "---|" * (header.count("|") - 1))
+        for row in rows:
+            evidence = _field(row, "evidence", default={}) or {}
+            priority = _field(row, "priority", default=None)
+            cells = [
+                _escape(_field(row, "id", default="")),
+                _escape(_field(row, "status", default="")),
+                "" if priority is None else f"P{priority}",
+                _escape(", ".join(_field(row, "guards", default=[]) or []) or "—"),
+                _escape(_field(evidence, "change_id", default="")),
+            ]
+            if similar:
+                cells += [
+                    f"{float(_field(evidence, 'combined_score', default=0.0)):.3f}",
+                    _escape(_field(evidence, "rank_in_change", default="")),
+                    _escape(
+                        ", ".join(_field(evidence, "shared_identifiers", default=[]) or []) or "—"
+                    ),
+                ]
+            cells.append(_escape(_field(row, "title", default="")))
+            lines.append("| " + " | ".join(cells) + " |")
+        lines.append("")
+
+    named = payload.get("named") or []
+    lines.extend(["## Named by a merged change and still in scope", ""])
+    if named:
+        lines.extend(
+            [
+                "The change names the record by ID. Check whether it finished the work.",
+                "",
+            ]
+        )
+        table(named, similar=False)
+    else:
+        lines.extend(["None.", ""])
+    similar_rows = payload.get("similar") or []
+    lines.extend(["## Similar to a merged change", ""])
+    if similar_rows:
+        lines.extend(
+            [
+                "Score is cosine similarity plus a small lift for each shared code identifier. "
+                "A record near the top of a change's ranking is the stronger lead.",
+                "",
+            ]
+        )
+        table(similar_rows, similar=True)
+    else:
+        lines.extend(["None.", ""])
+    lines.extend(
+        [
+            "## What to do next",
+            "",
+            "Read the change and the record before folding or closing anything; guarded records "
+            "need their owner.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def render_orphans_markdown(payload: Mapping[str, Any]) -> str:

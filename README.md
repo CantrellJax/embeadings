@@ -53,6 +53,12 @@ embead orphans
 
 # Nearest existing records for text that is not a bead yet (no placeholder record)
 embead match --title "Persist login across restarts" --body-file draft.txt
+
+# Live records that today's merges may already have done (reads git, never writes)
+embead superseded --since 2026-10-07
+
+# One deduplicated line per neighbor across many seeds, with owner and in-progress guards
+embead neighbors --ids-file sprint.txt --exclude-siblings --respect-soft-links --format table
 ```
 
 Without `pipx` or `uv`, the standard library is enough:
@@ -145,7 +151,7 @@ For `triage`, `sweep`, and `batch`, use `--output-dir DIRECTORY` when you want t
 Markdown, and per-batch artifact set. Use `--output report.json` or `--output report.md` for one
 primary report file; the extension chooses the file format independently of `--json` stdout.
 Any other `--output PATH` remains a backward-compatible directory spelling. `neighbors`,
-`collisions`, `mentions`, `orphans`, and `match` always treat `--output` as one atomic report file.
+`collisions`, `mentions`, `orphans`, `match`, and `superseded` always treat `--output` as one atomic report file.
 
 `collisions` reviews `open`, `in_progress`, and `blocked` work by default. It associates Git worktrees
 when a branch spells exactly one issue ID: the full ID, a prefix-less short form such as `abc12.4` or

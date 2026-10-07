@@ -117,6 +117,7 @@ def test_capabilities_is_corpus_free_and_machine_readable(monkeypatch, capsys) -
             "mentions",
             "orphans",
             "match",
+            "superseded",
         ],
         "capabilities": [
             "additive-fields",
@@ -1744,6 +1745,14 @@ def test_neighbors_exclude_siblings_and_soft_links(monkeypatch, tmp_path, capsys
     assert payload["dropped"] == {"seed": 0, "sibling": 2, "soft_link": 1, "structural_link": 0}
 
 
+def test_exclude_siblings_falls_back_to_hierarchical_ids() -> None:
+    assert cli._parent_of(IssueRecord(id="proj-abc.17", title="", status="open")) == "proj-abc"
+    assert cli._parent_of(IssueRecord(id="proj-abc.2.4", title="", status="open")) == "proj-abc.2"
+    assert cli._parent_of(IssueRecord(id="proj-abc", title="", status="open")) is None
+    recorded = IssueRecord(id="proj-abc.17", title="", status="open", parent_id="proj-x")
+    assert cli._parent_of(recorded) == "proj-x"
+
+
 def test_neighbors_table_dedupes_and_flags_guards(monkeypatch, tmp_path, capsys) -> None:
     output = _sprint_neighbors(
         monkeypatch, tmp_path, capsys, "demo-1", "demo-2", "--format", "table", "--limit", "9"
@@ -1783,3 +1792,20 @@ def test_schema_lists_and_describes_reports(capsys) -> None:
 
     assert cli.main(["schema", "nope"]) == 2
     assert "unknown report type" in capsys.readouterr().err
+
+
+def test_neighbors_batch_cli_output_matches_the_schema(monkeypatch, tmp_path, capsys) -> None:
+    from pathlib import Path
+
+    from jsonschema import Draft202012Validator
+
+    payload = json.loads(
+        _sprint_neighbors(
+            monkeypatch, tmp_path, capsys, "demo-1", "demo-2", "--exclude-siblings", "--json"
+        )
+    )
+    schema = json.loads(
+        (Path(__file__).resolve().parents[1] / "schemas/v1/neighbors-batch.schema.json").read_text()
+    )
+    payload["snapshot"]["tracker_version"] = "1.0.5"  # the fake adapter leaves it blank
+    Draft202012Validator(schema).validate(payload)

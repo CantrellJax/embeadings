@@ -123,6 +123,7 @@ def _load(directory: Path, name: str) -> dict[str, Any]:
         "mentions",
         "orphans",
         "match",
+        "superseded",
         "capabilities",
         "checkpoint",
     ],
@@ -322,6 +323,7 @@ def test_version_one_accepts_legacy_review_budget_shape() -> None:
         "mentions",
         "orphans",
         "match",
+        "superseded",
     ],
 )
 def test_version_one_accepts_generic_linear_snapshot(name: str) -> None:
