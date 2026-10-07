@@ -185,6 +185,7 @@ def build_neighbors_payload(
     model: Any,
     cache: Any | None = None,
     filters: Any | None = None,
+    diagnostics: Any | None = None,
 ) -> dict[str, Any]:
     """Build the versioned machine payload for a nearest-neighbor query."""
 
@@ -205,11 +206,52 @@ def build_neighbors_payload(
         "issue": _record(issue),
         "neighbors": [_record(neighbor) for neighbor in ordered],
     }
+    if diagnostics:
+        payload.update(_jsonable(diagnostics))
     return payload
 
 
+def merge_neighbor_results(results: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Deduplicate neighbors across seeds, keeping each one's best score and the seed behind it."""
+
+    merged: dict[str, dict[str, Any]] = {}
+    for result in results:
+        seed_id = str(_field(_field(result, "issue", default={}), "id", default=""))
+        for neighbor in _field(result, "neighbors", default=[]) or []:
+            neighbor_id = str(_field(neighbor, "id", "issue_id", default=""))
+            score = _score(neighbor)
+            row = merged.get(neighbor_id)
+            if row is None:
+                row = merged[neighbor_id] = {
+                    "id": neighbor_id,
+                    "title": _field(neighbor, "title", default=""),
+                    "status": _field(neighbor, "status", default=""),
+                    "priority": _field(neighbor, "priority", default=None),
+                    "labels": list(_field(neighbor, "labels", default=[]) or []),
+                    "assignee": _field(neighbor, "assignee", default=None),
+                    "updated_at": _field(neighbor, "updated_at", default=None),
+                    "guards": list(_field(neighbor, "guards", default=[]) or []),
+                    "best_similarity": score,
+                    "best_seed": seed_id,
+                    "best_rank": _field(neighbor, "rank", default=None),
+                    "seeds": [],
+                }
+            elif score > row["best_similarity"]:
+                row.update(
+                    best_similarity=score,
+                    best_seed=seed_id,
+                    best_rank=_field(neighbor, "rank", default=None),
+                )
+            row["seeds"].append(seed_id)
+    rows = list(merged.values())
+    for row in rows:
+        row["seeds"] = sorted(set(row["seeds"]))
+        row["seed_count"] = len(row["seeds"])
+    return sorted(rows, key=lambda row: (-row["best_similarity"], row["id"]))
+
+
 def build_neighbors_batch_payload(
-    results: Iterable[tuple[Any, Iterable[Any]]],
+    results: Iterable[tuple[Any, ...]],
     *,
     snapshot: Any,
     model: Any,
@@ -218,7 +260,7 @@ def build_neighbors_batch_payload(
 ) -> dict[str, Any]:
     """Build one payload for several seeds that shared a single corpus and model load."""
 
-    return {
+    payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "report_type": "neighbors-batch",
         "filters": _jsonable(filters or {}),
@@ -231,14 +273,19 @@ def build_neighbors_batch_payload(
         "snapshot": _jsonable(snapshot),
         "model": _jsonable(model),
         "cache": _jsonable(cache or {}),
-        "results": [
-            {
-                "issue": _record(issue),
-                "neighbors": [_record(item) for item in sorted(neighbors, key=_evidence_key)],
-            }
-            for issue, neighbors in results
-        ],
     }
+    rendered_results = []
+    for issue, neighbors, *rest in results:
+        result = {
+            "issue": _record(issue),
+            "neighbors": [_record(item) for item in sorted(neighbors, key=_evidence_key)],
+        }
+        if rest and rest[0]:
+            result.update(_jsonable(rest[0]))
+        rendered_results.append(result)
+    payload["results"] = rendered_results
+    payload["merged_neighbors"] = merge_neighbor_results(rendered_results)
+    return payload
 
 
 def build_mentions_payload(
@@ -323,6 +370,40 @@ def build_match_payload(
         "filters": _jsonable(filters or {}),
         "summary": _jsonable(summary or {}),
         "candidates": [_jsonable(candidate) for candidate in candidates],
+    }
+
+
+def build_superseded_payload(
+    named: Iterable[Any],
+    similar: Iterable[Any],
+    *,
+    changes: Iterable[Any],
+    snapshot: Any,
+    model: Any,
+    cache: Any | None = None,
+    filters: Any | None = None,
+    summary: Any | None = None,
+) -> dict[str, Any]:
+    """Build the report of live records that merged changes may already have done."""
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "report_type": "superseded",
+        "policy": {
+            "read_only": True,
+            "tracker_mutation_allowed": False,
+            "advisory": True,
+            "snippets_included": False,
+            "notice": f"{READ_ONLY_NOTICE} {ADVISORY_NOTICE}",
+        },
+        "snapshot": _jsonable(snapshot),
+        "model": _jsonable(model),
+        "cache": _jsonable(cache or {}),
+        "filters": _jsonable(filters or {}),
+        "summary": _jsonable(summary or {}),
+        "changes": [_jsonable(change) for change in changes],
+        "named": [_jsonable(row) for row in named],
+        "similar": [_jsonable(row) for row in similar],
     }
 
 
@@ -1106,6 +1187,70 @@ def render_neighbors_batch_markdown(payload: Mapping[str, Any]) -> str:
     return "\n".join(sections)
 
 
+def _baseline_text(baseline: Any) -> str:
+    if not baseline or not _field(baseline, "population", default=0):
+        return ""
+    return (
+        f"p50 {float(_field(baseline, 'p50')):.2f} · p90 {float(_field(baseline, 'p90')):.2f} · "
+        f"p99 {float(_field(baseline, 'p99')):.2f}"
+    )
+
+
+def render_neighbors_table(payload: Mapping[str, Any]) -> str:
+    """One plain-text line per neighbor, deduplicated across seeds, for a terminal."""
+
+    if payload.get("report_type") == "neighbors-batch":
+        rows = payload.get("merged_neighbors") or []
+        results = payload.get("results") or []
+    else:
+        rows = merge_neighbor_results([payload])
+        results = [payload]
+    header = ("SCORE", "SEEDS", "BEST SEED", "NEIGHBOR", "STATUS", "PRI", "ASSIGNEE", "GUARDS")
+    table = [header]
+    titles = []
+    for row in rows:
+        priority = _field(row, "priority", default=None)
+        table.append(
+            (
+                f"{float(_field(row, 'best_similarity', default=0.0)):.3f}",
+                str(_field(row, "seed_count", default=1)),
+                str(_field(row, "best_seed", default="")),
+                str(_field(row, "id", default="")),
+                str(_field(row, "status", default="")),
+                "" if priority is None else f"P{priority}",
+                str(_field(row, "assignee", default=None) or "-"),
+                ",".join(_field(row, "guards", default=[]) or []) or "-",
+            )
+        )
+        titles.append(" ".join(str(_field(row, "title", default="")).split()))
+    widths = [max(len(line[column]) for line in table) for column in range(len(header))]
+    lines = [f"# {READ_ONLY_NOTICE} {ADVISORY_NOTICE}"]
+    baselines = [
+        text
+        for result in results
+        if (text := _baseline_text(_field(result, "score_baseline", default=None)))
+    ]
+    if len(baselines) == 1:
+        lines.append(f"# Score baseline for this seed (all records in scope): {baselines[0]}")
+    elif baselines:
+        p90s = sorted(
+            float(_field(_field(result, "score_baseline"), "p90"))
+            for result in results
+            if _field(_field(result, "score_baseline", default={}), "population", default=0)
+        )
+        lines.append(
+            f"# Score baseline: median seed's p90 is {p90s[len(p90s) // 2]:.2f}; "
+            "scores near it are the neighbourhood, not a match"
+        )
+    for index, line in enumerate(table):
+        cells = "  ".join(cell.ljust(width) for cell, width in zip(line, widths, strict=True))
+        title = "TITLE" if index == 0 else titles[index - 1]
+        lines.append(f"{cells}  {title}".rstrip())
+    if not rows:
+        lines.append("(no neighbors survived the filters)")
+    return "\n".join(lines) + "\n"
+
+
 def render_match_markdown(payload: Mapping[str, Any]) -> str:
     """Render each candidate's nearest existing records as one table per candidate."""
 
@@ -1172,6 +1317,85 @@ def render_match_markdown(payload: Mapping[str, Any]) -> str:
             )
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def render_superseded_markdown(payload: Mapping[str, Any]) -> str:
+    """Render named and similar records, each with the change that is its evidence."""
+
+    summary = payload.get("summary") or {}
+    lines = [
+        "# Live records that merged changes may already have done",
+        "",
+        f"> {READ_ONLY_NOTICE} {ADVISORY_NOTICE}",
+        "",
+        *_metadata_lines(payload),
+        f"- Changes read: {_field(summary, 'changes_read', default=0)}; "
+        f"records compared: {_field(summary, 'records_compared', default=0)}",
+        "",
+    ]
+
+    def table(rows: list[Any], *, similar: bool) -> None:
+        header = "| Record | Status | Pri | Guards | Change | "
+        header += "Score | Rank in change | Shared identifiers | Title |" if similar else "Title |"
+        lines.append(header)
+        lines.append("|" + "---|" * (header.count("|") - 1))
+        for row in rows:
+            evidence = _field(row, "evidence", default={}) or {}
+            priority = _field(row, "priority", default=None)
+            cells = [
+                _escape(_field(row, "id", default="")),
+                _escape(_field(row, "status", default="")),
+                "" if priority is None else f"P{priority}",
+                _escape(", ".join(_field(row, "guards", default=[]) or []) or "—"),
+                _escape(_field(evidence, "change_id", default="")),
+            ]
+            if similar:
+                cells += [
+                    f"{float(_field(evidence, 'combined_score', default=0.0)):.3f}",
+                    _escape(_field(evidence, "rank_in_change", default="")),
+                    _escape(
+                        ", ".join(_field(evidence, "shared_identifiers", default=[]) or []) or "—"
+                    ),
+                ]
+            cells.append(_escape(_field(row, "title", default="")))
+            lines.append("| " + " | ".join(cells) + " |")
+        lines.append("")
+
+    named = payload.get("named") or []
+    lines.extend(["## Named by a merged change and still in scope", ""])
+    if named:
+        lines.extend(
+            [
+                "The change names the record by ID. Check whether it finished the work.",
+                "",
+            ]
+        )
+        table(named, similar=False)
+    else:
+        lines.extend(["None.", ""])
+    similar_rows = payload.get("similar") or []
+    lines.extend(["## Similar to a merged change", ""])
+    if similar_rows:
+        lines.extend(
+            [
+                "Score is cosine similarity plus a small lift for each shared code identifier. "
+                "A record near the top of a change's ranking is the stronger lead.",
+                "",
+            ]
+        )
+        table(similar_rows, similar=True)
+    else:
+        lines.extend(["None.", ""])
+    lines.extend(
+        [
+            "## What to do next",
+            "",
+            "Read the change and the record before folding or closing anything; guarded records "
+            "need their owner.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def render_orphans_markdown(payload: Mapping[str, Any]) -> str:

@@ -94,6 +94,8 @@ The shipped command inventory is:
 ```bash
 embead triage [--review-budget 20]
 embead neighbors ISSUE_ID [ISSUE_ID ...] [--ids-file FILE] [--limit N] [--include-closed] [--orphans-only]
+                 [--exclude-seeds] [--exclude-siblings] [--respect-soft-links] [--format table]
+embead superseded --since DATE|COMMIT [--repo DIR] [--ref REF] [--changes-file FILE.jsonl]
 embead sweep [--size 9]
 embead batch [--size 9]
 embead collisions [--worktree-map ISSUE_ID=PATH] [--branch-pattern REGEX] [--min-confidence LEVEL]
@@ -102,6 +104,7 @@ embead orphans [--include-parentless] [--include-ephemeral]
 embead readiness [--offline]
 embead doctor [--offline]
 embead capabilities [--json]
+embead schema [REPORT_TYPE] [--json]
 ```
 
 All analysis commands are synchronous. `--json` selects machine-readable stdout. For the
@@ -109,8 +112,8 @@ multi-artifact `triage`, `sweep`, and `batch` commands, `--output-dir DIRECTORY`
 JSON, Markdown, and per-batch set; `--output REPORT.json` or `--output REPORT.md` writes only the
 primary report in the extension-selected format. Extensionless `--output PATH` remains a
 backward-compatible directory spelling, as does any other non-report suffix. `neighbors`,
-`collisions`, `mentions`, `orphans`, and `match` use `--output FILE` for their
-single atomic report, whose format follows `--json`. `triage` is the opinionated bounded front door,
+`collisions`, `mentions`, `orphans`, `match`, and `superseded` use `--output FILE` for their
+single atomic report, whose format follows `--json` (or `neighbors --format`). `triage` is the opinionated bounded front door,
 while `sweep` exposes research and policy controls. `batch` is currently an alias for a synchronous
 sweep, not a separate scheduler.
 
@@ -149,6 +152,73 @@ one tracker load, model load, and vector index. One seed emits the `neighbors` r
 straggler question of high similarity with no tracker link. Because that property belongs to the
 pair rather than to the ranking, the filter is applied before `--limit`, so the limit bounds
 surviving neighbors rather than ranked ones. JSON output records the applied filter.
+
+The other pair filters work the same way, before `--limit`, and each result counts what it dropped
+under `dropped`. `--exclude-seeds` drops neighbors that are themselves seeds; it is on by default
+with several seeds, because in a sprint sweep seed-to-seed hits are the sprint the caller already
+knows about (`--no-exclude-seeds` restores them). `--exclude-siblings` drops neighbors that share the
+seed's direct parent (the recorded parent, else the one a hierarchical ID such as `abc12.4` spells). `--respect-soft-links` drops pairs whose text already records a lineage claim
+(`FOLDED into X`, `Folded in: X`, `Duplicate of X`, `Superseded by X`), and drops any neighbor whose
+own text says its work went elsewhere (folded into, duplicate of, superseded or fixed by another
+record, or `Superseded by #5495` / `Merged in #5469`), whichever seed found it, so a folded record
+does not resurface in the next sweep.
+
+Each neighbor carries `assignee`, `updated_at`, and `guards`: advisory triage flags computed from
+labels, status, assignee, and title words. `label:<label>` marks an owner label (`--guard-label`,
+default `owner-run` and `ask:owner`), `in-progress-assigned` marks work someone holds, and
+`keyword:<word>` marks a title or label word such as `prod`, `published`, `privacy`, `security`, or
+`money` (`--guard-keyword` replaces the list). Each result also carries `score_baseline`: the p50,
+p90, and p99 of the seed's similarity to every record in scope, so a reader can tell a standout from
+the neighbourhood on this model and corpus. `neighbors-batch` adds `merged_neighbors`, one row per
+neighbor across all seeds with `best_similarity`, `best_seed`, `best_rank`, `seeds`, and
+`seed_count`. `--format table` prints that view as one plain-text line per neighbor (score, seed
+count, best seed, status, priority, assignee, guards, title) under a baseline line. `--format json`
+is the same as `--json`.
+
+`embead schema REPORT_TYPE` prints any report's fields one per line with their types and
+descriptions, from the packaged JSON Schemas; `--json` prints the schema itself.
+
+### `superseded`
+
+```bash
+embead superseded --since DATE|TIMESTAMP|COMMIT [--repo DIR] [--ref HEAD]
+                  [--changes-file FILE.jsonl] [--limit 20] [--per-change 10]
+                  [--include-epics] [--include-closed-since] [--guard-label LABEL]
+                  [--include-ephemeral] [--json] [--output FILE]
+```
+
+Answers the question a coordinator asks after a sprint: which live records did the merged changes
+already do? `neighbors` compares records with records; this compares records with changes.
+
+Changes come from `git log --first-parent -m --name-only` on `--ref` in `--repo` (a bare date means
+local midnight; a commit means `COMMIT..REF`), or from `--changes-file`, one JSON object per line
+with `title`, `body`, `files` (paths or `{"path": ...}` objects, as `gh pr list --json` emits),
+`number`, and `mergedAt`. A squash commit's `(#N)` suffix and a merge commit's `Merge pull request
+#N from BRANCH` subject give the PR number. Each change's query text is its title, body, and changed
+paths, embedded in memory with the same canonical-text rules as a record; it never reaches the
+vector cache.
+
+A squash merge that lists several commits (`* subject`, blank line, body) is also split into one
+facet per commit, and each facet is ranked on its own. A fix bundled into a larger pull request
+then still reaches the record it closes: on the 2026-10-07 onCall sweep the record a PR's second
+commit fixed ranked 18th against the whole PR and first against that commit.
+
+The report has two lists. `named` holds records in scope that a change names by ID in its title,
+body, or branch: work the change probably finished. Those records are removed from the similarity
+ranking, where they would take first place in their own change. `similar` holds the `--per-change`
+nearest records of each facet, merged so each record keeps its best evidence, ordered by
+`rank_in_change`, then `lead` (how far the record's score leads the next record for that change),
+then score. Rank and lead are the primary signals because cosine scores are model-specific and a
+long change sits close to many records. Code identifiers the change and record share (camelCase
+and snake_case names, kebab-case and file stems, routes) that at most 0.5% of records carry add 0.02
+each, up to three, to `combined_score`; they are listed as `shared_identifiers`.
+
+Each row carries the record's `id`, `title`, `status`, `priority`, `labels`, `assignee`, `guards`,
+`change_count`, and `evidence` (`change_id`, `pr_number`, `commit`, `merged_at`, change `title`,
+`basis`, `facet`, `similarity`, `combined_score`, `rank_in_change`, `lead`, `shared_identifiers`).
+Epics are excluded unless `--include-epics`. `--include-closed-since` also compares records closed
+after the first change merged, which replays a sweep after its follow-up closes. The command reads
+git and the tracker only; it closes, links, and comments on nothing.
 
 ### `triage`, `sweep`, and `batch`
 

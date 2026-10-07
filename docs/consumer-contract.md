@@ -2,7 +2,7 @@
 
 emBEADings artifacts are read-only, advisory evidence. The JSON Schemas in
 [`schemas/v1`](../schemas/v1/) describe the stable machine-readable envelope for the `neighbors`,
-`neighbors-batch`, `batch`, `sweep`, `triage`, `collisions`, `mentions`, `orphans`, and `match` report types. The files in [`examples`](../examples/) are synthetic
+`neighbors-batch`, `batch`, `sweep`, `triage`, `collisions`, `mentions`, `orphans`, `match`, and `superseded` report types. `embead schema REPORT_TYPE` prints any of them one field per line. The files in [`examples`](../examples/) are synthetic
 and contain no private tracker or source content.
 
 ## Version negotiation
@@ -225,6 +225,11 @@ score as a tracker dependency, status transition, duplicate decision, or authori
 with `resolution_evidence` shows only what the tracker recorded as a close reason, and a `null` there
 means none was recorded. Similarity is a retrieval lead, not a duplicate verdict.
 
+`superseded` reports leads that merged changes may have done a record's work. A `named` row means
+a change names the record by ID, not that the work is complete; a `similar` row is a retrieval lead
+ordered by `rank_in_change` and `lead`. Change titles come from git or the caller's changes file.
+`guards` on `neighbors` and `superseded` rows are advisory flags for a human, never a block.
+
 ## Schema locations
 
 | Report type | Schema | Example |
@@ -234,6 +239,7 @@ means none was recorded. Similarity is a retrieval lead, not a duplicate verdict
 | `mentions` | [`mentions.schema.json`](../schemas/v1/mentions.schema.json) | [`mentions.json`](../examples/mentions.json) |
 | `orphans` | [`orphans.schema.json`](../schemas/v1/orphans.schema.json) | [`orphans.json`](../examples/orphans.json) |
 | `match` | [`match.schema.json`](../schemas/v1/match.schema.json) | [`match.json`](../examples/match.json) |
+| `superseded` | [`superseded.schema.json`](../schemas/v1/superseded.schema.json) | [`superseded.json`](../examples/superseded.json) |
 | `batch` | [`batch.schema.json`](../schemas/v1/batch.schema.json) | [`batch.json`](../examples/batch.json) |
 | `sweep` | [`sweep.schema.json`](../schemas/v1/sweep.schema.json) | [`sweep.json`](../examples/sweep.json) |
 | `triage` | [`triage.schema.json`](../schemas/v1/triage.schema.json) | [`triage.json`](../examples/triage.json) |

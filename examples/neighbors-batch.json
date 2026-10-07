@@ -4,7 +4,21 @@
   "filters": {
     "include_closed": true,
     "structural_link": "any",
-    "limit": 1
+    "limit": 1,
+    "exclude_seeds": true,
+    "exclude_siblings": false,
+    "respect_soft_links": false,
+    "guard_labels": [
+      "owner-run",
+      "ask:owner"
+    ],
+    "guard_keywords": [
+      "prod",
+      "published",
+      "privacy",
+      "security",
+      "money"
+    ]
   },
   "policy": {
     "read_only": true,
@@ -53,9 +67,23 @@
           "structural_context": "same parent demo-epic",
           "rank": 1,
           "reverse_rank": 2,
-          "text_claims": []
+          "text_claims": [],
+          "assignee": null,
+          "guards": []
         }
-      ]
+      ],
+      "score_baseline": {
+        "population": 3,
+        "p50": 0.41,
+        "p90": 0.62,
+        "p99": 0.62
+      },
+      "dropped": {
+        "seed": 0,
+        "sibling": 0,
+        "soft_link": 0,
+        "structural_link": 0
+      }
     },
     {
       "issue": {
@@ -90,9 +118,63 @@
               "related_issue_id": "demo-3",
               "kind": "absorbed-by"
             }
-          ]
+          ],
+          "assignee": null,
+          "guards": []
         }
-      ]
+      ],
+      "score_baseline": {
+        "population": 3,
+        "p50": 0.41,
+        "p90": 0.62,
+        "p99": 0.62
+      },
+      "dropped": {
+        "seed": 0,
+        "sibling": 0,
+        "soft_link": 0,
+        "structural_link": 0
+      }
+    }
+  ],
+  "merged_neighbors": [
+    {
+      "id": "demo-2",
+      "title": "Implement token refresh",
+      "status": "closed",
+      "priority": 1,
+      "labels": [
+        "auth"
+      ],
+      "assignee": null,
+      "updated_at": null,
+      "guards": [],
+      "best_similarity": 0.91,
+      "best_seed": "demo-1",
+      "best_rank": 1,
+      "seeds": [
+        "demo-1"
+      ],
+      "seed_count": 1
+    },
+    {
+      "id": "demo-4",
+      "title": "Remove session cookie fallback",
+      "status": "open",
+      "priority": 2,
+      "labels": [
+        "auth"
+      ],
+      "assignee": null,
+      "updated_at": null,
+      "guards": [],
+      "best_similarity": 0.68,
+      "best_seed": "demo-3",
+      "best_rank": 1,
+      "seeds": [
+        "demo-3"
+      ],
+      "seed_count": 1
     }
   ]
 }

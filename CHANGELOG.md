@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+Field-report follow-ups from the 2026-10-07 onCall sprint sweep (1,815 open beads, ~85 merges).
+
+- Add `embead superseded --since DATE|COMMIT`: match live records against merged changes (git
+  first-parent history or a `--changes-file` JSONL of PRs) by title, body, and changed paths. Records
+  a change names by ID are listed as `named`; the rest are ranked per squashed commit by rank, lead
+  over the next record, and score, with a small lift for rare shared code identifiers. On the
+  2026-10-07 replay the PR #5495 follow-up `oncall-z9yg1.110` ranks 10th (about 100th in the
+  bead-to-bead sweep) and `oncall-x6g06` is named by #5469.
+- `neighbors`: `--exclude-seeds` (default on with several seeds), `--exclude-siblings`, and
+  `--respect-soft-links`; per-neighbor `assignee`, `updated_at`, and `guards` (owner labels,
+  in-progress with an assignee, prod/published/privacy/security/money words); per-seed
+  `score_baseline` and `dropped`; `merged_neighbors` across seeds; and `--format table`.
+- `mentions` reads `Folded in: X` as an absorbs claim; `--respect-soft-links` also drops records
+  whose own text says they were folded into, duplicate, or were superseded by another record or a
+  `#PR` (`Superseded by #5495`, `Merged in #5469`), whichever seed found them.
+- Add `embead schema [REPORT_TYPE]`, printing a report's fields one per line, and document the
+  neighbor fields in `neighbors --help`.
+
 Field-report follow-ups from a native-Beads sweep of about 6,000 issues and 14 worktrees.
 
 - Add `embead match`: a read-only retrieval of the nearest existing records (all statuses by

@@ -62,7 +62,7 @@ _VERBS = (
         r"\s+(?:by|in|via)",
     ),
     ("supersedes", r"supersedes|replaces"),
-    ("absorbs", r"absorbs|subsumes|folds\s+in"),
+    ("absorbs", r"absorbs|subsumes|folds\s+in|folded\s+in"),
     ("continued-in", r"continued\s+in|continues\s+in|tracked\s+in|split\s+(?:to|into)"),
 )
 _CLAIM_RES = tuple((kind, re.compile(rf"\b(?:{verbs})\b")) for kind, verbs in _VERBS)
@@ -179,6 +179,39 @@ def extract_claims(
         if issue_id in by_id and related in by_id
     ]
     return tuple(sorted(claims, key=claim_sort_key))
+
+
+# Claims by which a record says its own work lives elsewhere now.
+RESOLVING_KINDS = frozenset({"duplicate-of", "superseded-by", "absorbed-by", "fixed-by"})
+_CHANGE_REFERENCE_RE = re.compile(
+    rf"\b(?:{_VERBS[1][1]}|{_VERBS[2][1]}|{_VERBS[3][1]}|merged\s+(?:in|via|as))"
+    r"\s+(?:pr\s*|pull\s+request\s*)?#\d+"
+)
+
+
+def resolved_elsewhere(
+    issues: Iterable[Any], all_issues: Sequence[Any], *, resolver: IssueIdResolver | None = None
+) -> frozenset[str]:
+    """IDs of records whose own text says another record or a merged change took their work.
+
+    "FOLDED into X", "Duplicate of X", "Superseded by #5495", "Merged in #5469": such a record is
+    settled, so a sweep need not offer it again as a neighbor of anything.
+    """
+
+    claimed = {
+        claim.issue_id
+        for claim in extract_claims(issues, all_issues, resolver=resolver)
+        if claim.kind in RESOLVING_KINDS
+    }
+    for issue in issues:
+        for field in _CLAIM_FIELDS:
+            text = _field(issue, field).casefold()
+            if any(
+                not _negated(text, match.start()) for match in _CHANGE_REFERENCE_RE.finditer(text)
+            ):
+                claimed.add(str(issue.id))
+                break
+    return frozenset(claimed)
 
 
 def claim_sort_key(claim: TextClaim) -> tuple[int, str, str]:

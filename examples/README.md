@@ -13,6 +13,7 @@ or reviewing the privacy boundary; use the installed CLI for current command hel
 | [`mentions.json`](mentions.json) | Text lineage claim with no typed link, reported without the text |
 | [`orphans.json`](orphans.json) | Live issues whose parent is closed or missing, plus optional parentless groups |
 | [`match.json`](match.json) | Nearest existing records for candidate text that is not yet a bead |
+| [`superseded.json`](superseded.json) | Live records that merged changes name or closely match |
 | [`sweep.json`](sweep.json) | Full synchronous analysis and batching report |
 | [`batch.json`](batch.json) | Compatibility alias for a synchronous sweep artifact |
 | [`capabilities.json`](capabilities.json) | Schema and feature negotiation handshake |

@@ -16,13 +16,18 @@
     "model_id": "synthetic-local-model",
     "model_revision": "example-revision"
   },
-  "cache": { "hits": 2, "misses": 0 },
+  "cache": {
+    "hits": 2,
+    "misses": 0
+  },
   "issue": {
     "id": "demo-1",
     "title": "Document token refresh",
     "status": "open",
     "priority": 2,
-    "labels": ["documentation"],
+    "labels": [
+      "documentation"
+    ],
     "parent_id": "demo-epic",
     "dependencies": []
   },
@@ -32,14 +37,30 @@
       "title": "Implement token refresh",
       "status": "closed",
       "priority": 1,
-      "labels": ["auth"],
+      "labels": [
+        "auth"
+      ],
       "parent_id": "demo-epic",
       "dependencies": [],
       "similarity": 0.91,
       "rank": 1,
       "reverse_rank": 2,
       "structural_context": "same parent demo-epic",
-      "text_claims": []
+      "text_claims": [],
+      "assignee": null,
+      "guards": []
     }
-  ]
+  ],
+  "score_baseline": {
+    "population": 3,
+    "p50": 0.41,
+    "p90": 0.62,
+    "p99": 0.62
+  },
+  "dropped": {
+    "seed": 0,
+    "sibling": 0,
+    "soft_link": 0,
+    "structural_link": 0
+  }
 }

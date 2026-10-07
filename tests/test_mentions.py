@@ -1,4 +1,4 @@
-from embead.mentions import claims_between, extract_claims, kind_counts
+from embead.mentions import claims_between, extract_claims, kind_counts, resolved_elsewhere
 from embead.models import DependencyLink, IssueRecord
 
 
@@ -118,3 +118,44 @@ def test_claim_object_may_follow_a_short_noun_phrase_within_the_clause() -> None
         ("demo-abc12", "absorbed-by", "demo-xyz34.1"),
         ("demo-mmm55", "absorbed-by", "demo-qqq99"),
     ]
+
+
+def test_fold_notes_read_as_lineage_claims() -> None:
+    issues = (
+        IssueRecord(id="proj-aaaa1", title="a", status="open", notes="FOLDED into proj-bbbb2 (x)."),
+        IssueRecord(id="proj-bbbb2", title="b", status="open", notes="Folded in: proj-cccc3"),
+        IssueRecord(id="proj-cccc3", title="c", status="open"),
+    )
+
+    claims = {(c.issue_id, c.kind, c.related_issue_id) for c in extract_claims(issues, issues)}
+
+    assert claims == {
+        ("proj-aaaa1", "absorbed-by", "proj-bbbb2"),
+        ("proj-bbbb2", "absorbs", "proj-cccc3"),
+    }
+
+
+def test_resolved_elsewhere_reads_folds_duplicates_and_pr_references() -> None:
+    issues = (
+        IssueRecord(id="proj-aaaa1", title="a", status="open", notes="FOLDED into proj-bbbb2 (x)."),
+        IssueRecord(id="proj-bbbb2", title="b", status="open", notes="Folded in: proj-aaaa1"),
+        IssueRecord(
+            id="proj-cccc3", title="c", status="closed", close_reason="Superseded by #5495 (fix)"
+        ),
+        IssueRecord(id="proj-dddd4", title="d", status="open", notes="Merged in #5469 today"),
+        IssueRecord(id="proj-eeee5", title="e", status="open", notes="Not superseded by #12."),
+        IssueRecord(id="proj-ffff6", title="f", status="open", notes="See #12 for context."),
+        IssueRecord(
+            id="proj-gggg7",
+            title="g",
+            status="closed",
+            close_reason="Duplicate of proj-bbbb2 item (1)",
+        ),
+    )
+
+    assert resolved_elsewhere(issues, issues) == {
+        "proj-aaaa1",
+        "proj-cccc3",
+        "proj-dddd4",
+        "proj-gggg7",
+    }

@@ -1,0 +1,360 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/DyrtyJax/embeadings/main/schemas/v1/superseded.schema.json",
+  "title": "emBEADings superseded report, schema version 1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "report_type",
+    "policy",
+    "snapshot",
+    "model",
+    "cache",
+    "filters",
+    "summary",
+    "changes",
+    "named",
+    "similar"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "report_type": {
+      "const": "superseded"
+    },
+    "policy": {
+      "type": "object",
+      "required": [
+        "read_only",
+        "tracker_mutation_allowed",
+        "advisory",
+        "snippets_included",
+        "notice"
+      ],
+      "properties": {
+        "read_only": {
+          "const": true
+        },
+        "tracker_mutation_allowed": {
+          "const": false
+        },
+        "advisory": {
+          "const": true
+        },
+        "snippets_included": {
+          "const": false
+        },
+        "notice": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "snapshot": {
+      "$ref": "#/$defs/snapshot"
+    },
+    "model": {
+      "type": "object",
+      "required": [
+        "model_id",
+        "model_revision"
+      ],
+      "properties": {
+        "model_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model_revision": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "cache": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "filters": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "changes_read": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "records_compared": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "named_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "similar_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "omitted_by_limit": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    },
+    "changes": {
+      "type": "array",
+      "description": "Every change read, newest first.",
+      "items": {
+        "type": "object",
+        "required": [
+          "change_id",
+          "title"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "named": {
+      "type": "array",
+      "description": "Records in scope that a change names by ID: check whether the change finished them.",
+      "items": {
+        "$ref": "#/$defs/row"
+      }
+    },
+    "similar": {
+      "type": "array",
+      "description": "Records nearest a change, best rank_in_change first, then lead.",
+      "items": {
+        "$ref": "#/$defs/row"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "required": [
+        "workspace_id",
+        "beads_version"
+      ],
+      "properties": {
+        "workspace_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "beads_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "tracker_name": {
+          "enum": [
+            "beads",
+            "linear"
+          ]
+        },
+        "tracker_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workspace_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "relation_diagnostics": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "source_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_divergence_reasons": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "dependency_structure",
+              "issue_identity",
+              "issue_type",
+              "priority",
+              "record_count",
+              "status",
+              "update_marker"
+            ]
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "evidence": {
+      "type": "object",
+      "required": [
+        "change_id",
+        "title",
+        "basis"
+      ],
+      "properties": {
+        "change_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "#<PR number>, or the commit's short hash when no PR number is known."
+        },
+        "pr_number": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "merged_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "description": "The change's title (from git or the changes file, never from the tracker)."
+        },
+        "basis": {
+          "enum": [
+            "named",
+            "similar"
+          ],
+          "description": "named: the change names the record by ID. similar: the record ranks near the change."
+        },
+        "facet": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Subject of the squashed commit that matched, or null for the whole change."
+        },
+        "similarity": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -1,
+          "maximum": 1,
+          "description": "Cosine similarity to the facet; null for named records."
+        },
+        "combined_score": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "similarity plus a small lift per shared rare identifier."
+        },
+        "rank_in_change": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "Where the record ranks for this change (1 is nearest); the primary sort key."
+        },
+        "lead": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "How far the record's score leads the next record for this change; the secondary sort key."
+        },
+        "shared_identifiers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Function names, file stems and routes that the change and the record share and few records carry."
+        }
+      },
+      "additionalProperties": true
+    },
+    "row": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "status",
+        "guards",
+        "evidence",
+        "change_count"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "issue_type": {
+          "type": "string"
+        },
+        "priority": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "assignee": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parent_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "guards": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Triage flags: label:<owner label>, in-progress-assigned, keyword:<word>. Needs a human before any fold or close."
+        },
+        "change_count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How many changes listed this record."
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidence"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

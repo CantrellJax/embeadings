@@ -1,0 +1,189 @@
+{
+  "cache": {
+    "hits": 0,
+    "misses": 4
+  },
+  "changes": [
+    {
+      "change_id": "#5495",
+      "commit": "a07f7f5c0c",
+      "merged_at": "2026-10-07T22:15:00Z",
+      "pr_number": 5495,
+      "title": "[proj-fix1] Validation edge"
+    },
+    {
+      "change_id": "#5469",
+      "commit": null,
+      "merged_at": "2026-10-07T20:00:00Z",
+      "pr_number": 5469,
+      "title": "[proj-x6g06] Hide inactive providers by default"
+    }
+  ],
+  "filters": {
+    "guard_keywords": [
+      "prod",
+      "production",
+      "published",
+      "privacy",
+      "phi",
+      "hipaa",
+      "security",
+      "money",
+      "payment",
+      "billing",
+      "payroll"
+    ],
+    "guard_labels": [
+      "owner-run",
+      "ask:owner"
+    ],
+    "include_closed_since": "2026-10-07T20:00:00+00:00",
+    "include_ephemeral": false,
+    "include_epics": false,
+    "limit": 20,
+    "per_change": 10,
+    "source": {
+      "kind": "changes-file",
+      "path": "changes.jsonl"
+    }
+  },
+  "model": {
+    "model_id": "synthetic-local-model",
+    "model_revision": "example-revision"
+  },
+  "named": [
+    {
+      "assignee": null,
+      "change_count": 1,
+      "evidence": {
+        "basis": "named",
+        "change_id": "#5495",
+        "combined_score": null,
+        "commit": "a07f7f5c0c",
+        "facet": null,
+        "lead": null,
+        "merged_at": "2026-10-07T22:15:00Z",
+        "pr_number": 5495,
+        "rank_in_change": null,
+        "shared_identifiers": [],
+        "similarity": null,
+        "title": "[proj-fix1] Validation edge"
+      },
+      "guards": [],
+      "id": "proj-fix1",
+      "issue_type": "",
+      "labels": [],
+      "parent_id": null,
+      "priority": null,
+      "status": "closed",
+      "title": "Validation edge"
+    }
+  ],
+  "policy": {
+    "advisory": true,
+    "notice": "Synthetic read-only example. A change's similarity to a record is a lead, not proof the work is done.",
+    "read_only": true,
+    "snippets_included": false,
+    "tracker_mutation_allowed": false
+  },
+  "report_type": "superseded",
+  "schema_version": 1,
+  "similar": [
+    {
+      "assignee": null,
+      "change_count": 2,
+      "evidence": {
+        "basis": "similar",
+        "change_id": "#5495",
+        "combined_score": 0.774984,
+        "commit": "a07f7f5c0c",
+        "facet": null,
+        "lead": 0.495876,
+        "merged_at": "2026-10-07T22:15:00Z",
+        "pr_number": 5495,
+        "rank_in_change": 1,
+        "shared_identifiers": [],
+        "similarity": 0.774984,
+        "title": "[proj-fix1] Validation edge"
+      },
+      "guards": [
+        "label:owner-run"
+      ],
+      "id": "proj-picker",
+      "issue_type": "",
+      "labels": [
+        "owner-run"
+      ],
+      "parent_id": null,
+      "priority": null,
+      "status": "open",
+      "title": "Picker reads the validator rows"
+    },
+    {
+      "assignee": null,
+      "change_count": 2,
+      "evidence": {
+        "basis": "similar",
+        "change_id": "#5469",
+        "combined_score": 0.268438,
+        "commit": null,
+        "facet": null,
+        "lead": 0.153393,
+        "merged_at": "2026-10-07T20:00:00Z",
+        "pr_number": 5469,
+        "rank_in_change": 1,
+        "shared_identifiers": [],
+        "similarity": 0.268438,
+        "title": "[proj-x6g06] Hide inactive providers by default"
+      },
+      "guards": [
+        "keyword:billing"
+      ],
+      "id": "proj-other",
+      "issue_type": "",
+      "labels": [],
+      "parent_id": null,
+      "priority": null,
+      "status": "open",
+      "title": "Unrelated billing export"
+    },
+    {
+      "assignee": null,
+      "change_count": 2,
+      "evidence": {
+        "basis": "similar",
+        "change_id": "#5495",
+        "combined_score": 0.542326,
+        "commit": "a07f7f5c0c",
+        "facet": "[proj-fix1] Picker reads the validator rows (review M1)",
+        "lead": 0.379628,
+        "merged_at": "2026-10-07T22:15:00Z",
+        "pr_number": 5495,
+        "rank_in_change": 2,
+        "shared_identifiers": [],
+        "similarity": 0.542326,
+        "title": "[proj-fix1] Validation edge"
+      },
+      "guards": [],
+      "id": "proj-late",
+      "issue_type": "",
+      "labels": [],
+      "parent_id": null,
+      "priority": null,
+      "status": "closed",
+      "title": "Picker validator rows"
+    }
+  ],
+  "snapshot": {
+    "workspace_id": "synthetic-workspace",
+    "beads_version": "1.0.5",
+    "workspace_path": null
+  },
+  "summary": {
+    "changes_read": 2,
+    "named_count": 1,
+    "omitted_by_limit": 0,
+    "records_compared": 4,
+    "similar_count": 3
+  }
+}

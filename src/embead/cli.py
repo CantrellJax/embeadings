@@ -28,6 +28,7 @@ from .beads import BeadsAdapter
 from .cache import VectorCache
 from .doctor import diagnose
 from .explain import explain_candidate
+from .guards import DEFAULT_GUARD_KEYWORDS, DEFAULT_GUARD_LABELS, guard_flags, score_baseline
 from .identifiers import IssueIdResolver
 from .incremental import (
     IncrementalScope,
@@ -38,7 +39,7 @@ from .incremental import (
 )
 from .linear import LinearAdapter
 from .match import candidate_texts, load_candidates, match_candidates
-from .mentions import extract_claims
+from .mentions import extract_claims, resolved_elsewhere
 from .mentions import kind_counts as claim_kind_counts
 from .models import IssueRecord, WorkspaceSnapshot, canonical_text, semantic_field_texts
 from .orphans import (
@@ -65,6 +66,7 @@ from .reports import (
     build_neighbors_batch_payload,
     build_neighbors_payload,
     build_orphans_payload,
+    build_superseded_payload,
     build_sweep_payload,
     build_triage_payload,
     describe_conservation_balance,
@@ -74,9 +76,19 @@ from .reports import (
     render_mentions_markdown,
     render_neighbors_batch_markdown,
     render_neighbors_markdown,
+    render_neighbors_table,
     render_orphans_markdown,
+    render_superseded_markdown,
     render_sweep_markdown,
     render_triage_markdown,
+)
+from .schema_doc import field_lines, load_schema, report_types
+from .superseded import (
+    changes_from_file,
+    changes_from_git,
+    earliest_merge,
+    in_scope,
+    superseded_candidates,
 )
 from .surfaces import (
     CONFIDENCE_LEVELS,
@@ -108,6 +120,18 @@ PRODUCER_CAPABILITIES = (
 
 
 DIVERGENCE_EXIT_CODE = 3
+NEIGHBORS_EPILOG = """\
+JSON fields per neighbor (full list: embead schema neighbors-batch):
+  id, title, status, priority, labels, assignee, parent_id
+  similarity       cosine score, -1..1; compare it with score_baseline, not a fixed cutoff
+  rank             position among the seed's neighbors before filters
+  reverse_rank     where the seed ranks among this neighbor's own neighbors
+  structural_context, text_claims, guards
+Several seeds add merged_neighbors: one row per neighbor with its best score and seed.
+
+example:
+  embead neighbors --ids-file seeds.txt --exclude-siblings --respect-soft-links --format table
+"""
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -145,7 +169,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    neighbors = subparsers.add_parser("neighbors", help="Find nearest semantic neighbors")
+    neighbors = subparsers.add_parser(
+        "neighbors",
+        help="Find nearest semantic neighbors",
+        epilog=NEIGHBORS_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     neighbors.add_argument(
         "issue_ids",
         nargs="*",
@@ -169,16 +198,65 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     neighbors.add_argument(
+        "--exclude-seeds",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Drop neighbors that are themselves seeds (default: on with several seeds; "
+            "seed-to-seed hits are the sprint you already know about)"
+        ),
+    )
+    neighbors.add_argument(
+        "--exclude-siblings",
+        action="store_true",
+        help="Drop neighbors that share the seed's direct parent",
+    )
+    neighbors.add_argument(
+        "--respect-soft-links",
+        action="store_true",
+        help=(
+            "Drop neighbors whose text records a lineage claim with the seed, or says the "
+            "neighbor itself was folded into, duplicates, or was superseded by another "
+            "record or a #PR"
+        ),
+    )
+    neighbors.add_argument(
+        "--guard-label",
+        action="append",
+        metavar="LABEL",
+        help=(
+            "Label that flags a neighbor as needing its owner before any fold or close "
+            f"(repeatable; default: {', '.join(DEFAULT_GUARD_LABELS)})"
+        ),
+    )
+    neighbors.add_argument(
+        "--guard-keyword",
+        action="append",
+        metavar="WORD",
+        help=(
+            "Title or label word that flags a neighbor for a second look "
+            "(repeatable; default: prod, published, privacy, security, money and similar)"
+        ),
+    )
+    neighbors.add_argument(
         "--include-ephemeral",
         action="store_true",
         help="Include temporary Beads runtime records (excluded by default)",
     )
     neighbors.add_argument("--json", action="store_true", dest="as_json")
     neighbors.add_argument(
+        "--format",
+        choices=("markdown", "json", "table"),
+        help=(
+            "markdown (default), json (same as --json), or table: one line per neighbor, "
+            "deduplicated across seeds, with its best score, seed, and guards"
+        ),
+    )
+    neighbors.add_argument(
         "--output",
         type=Path,
         metavar="FILE",
-        help="Atomically write this single report (JSON with --json; Markdown otherwise)",
+        help="Atomically write this single report (in the chosen format)",
     )
 
     mentions = subparsers.add_parser(
@@ -211,6 +289,91 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="FILE",
         help="Atomically write this single report (JSON with --json; Markdown otherwise)",
+    )
+
+    superseded = subparsers.add_parser(
+        "superseded",
+        help="Find live records that merged changes may already have done (git or a PR list)",
+        description=(
+            "Match every live record against the changes merged since a date or commit: their "
+            "titles, bodies, and changed paths. Records a change names by ID are listed "
+            "separately from records that only look like a change."
+        ),
+    )
+    superseded.add_argument(
+        "--since",
+        required=True,
+        metavar="DATE|TIMESTAMP|COMMIT",
+        help="First-parent commits after this date (midnight local), timestamp, or commit",
+    )
+    superseded.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        metavar="DIR",
+        help="Git repository whose history is read (default: the current directory)",
+    )
+    superseded.add_argument(
+        "--ref", default="HEAD", help="Branch or ref the merges landed on (default: HEAD)"
+    )
+    superseded.add_argument(
+        "--changes-file",
+        type=Path,
+        metavar="FILE.jsonl",
+        help=(
+            "Read changes from JSONL instead of git, one per line: title, body, files, number "
+            "(gh pr list --json number,title,body,files,mergedAt | jq -c '.[]')"
+        ),
+    )
+    superseded.add_argument(
+        "--limit", type=int, default=20, help="Similar records to list (default: 20)"
+    )
+    superseded.add_argument(
+        "--per-change",
+        type=int,
+        default=10,
+        metavar="N",
+        help="Nearest records kept per change before merging across changes (default: 10)",
+    )
+    superseded.add_argument("--include-epics", action="store_true")
+    superseded.add_argument(
+        "--include-closed-since",
+        action="store_true",
+        help=(
+            "Also compare records closed after the first change merged (replays a sweep "
+            "after its follow-up closes)"
+        ),
+    )
+    superseded.add_argument(
+        "--guard-label",
+        action="append",
+        metavar="LABEL",
+        help=f"Owner label to flag (repeatable; default: {', '.join(DEFAULT_GUARD_LABELS)})",
+    )
+    superseded.add_argument(
+        "--guard-keyword", action="append", metavar="WORD", help="Title word to flag (repeatable)"
+    )
+    _ephemeral_argument(superseded)
+    superseded.add_argument("--json", action="store_true", dest="as_json")
+    superseded.add_argument(
+        "--output",
+        type=Path,
+        metavar="FILE",
+        help="Atomically write this single report (JSON with --json; Markdown otherwise)",
+    )
+
+    schema = subparsers.add_parser(
+        "schema",
+        help="Print a JSON report's fields, one line each (no tracker or model needed)",
+    )
+    schema.add_argument(
+        "report_type",
+        nargs="?",
+        metavar="REPORT_TYPE",
+        help="Report to describe, e.g. neighbors-batch; omit to list report types",
+    )
+    schema.add_argument(
+        "--json", action="store_true", dest="as_json", help="Print the raw JSON Schema instead"
     )
 
     orphans = subparsers.add_parser(
@@ -887,6 +1050,7 @@ def _capabilities(args: argparse.Namespace) -> int:
             "mentions",
             "orphans",
             "match",
+            "superseded",
         ],
         "capabilities": list(PRODUCER_CAPABILITIES),
         "required_capabilities": ["read-only-review"],
@@ -997,6 +1161,15 @@ def _neighbor_seed_ids(args: argparse.Namespace) -> list[str]:
     return seeds
 
 
+def _parent_of(issue: IssueRecord) -> str | None:
+    """The recorded parent, else the one a hierarchical ID spells (``abc12.4`` -> ``abc12``)."""
+
+    if issue.parent_id:
+        return issue.parent_id
+    head, dot, tail = issue.id.rpartition(".")
+    return head if dot and tail.isdigit() else None
+
+
 def _neighbor_evidence(
     args: argparse.Namespace,
     seed: IssueRecord,
@@ -1006,27 +1179,50 @@ def _neighbor_evidence(
     similarity_index: SimilarityIndex,
     pool: Any,
     resolver: IssueIdResolver,
-) -> list[dict[str, Any]]:
+    excluded: frozenset[str],
+    settled: frozenset[str] = frozenset(),
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    # Filters are properties of the pair, not of the ranking, so the limit has to apply to the
+    # surviving neighbors; and the score baseline needs the whole population. Rank everything.
     ranked = nearest_neighbors(
         seed,
         issues,
         vectors,
-        # Orphan filtering is a property of the pair, not of the ranking, so the
-        # limit has to apply to the surviving neighbors. Rank everything first.
-        limit=(len(issues) if args.limit else 0) if args.orphans_only else args.limit,
+        limit=len(issues),
         include_closed=args.include_closed,
         similarity_index=similarity_index,
     )
-    evidence = []
+    baseline = score_baseline(neighbor.similarity for neighbor in ranked)
+    evidence: list[dict[str, Any]] = []
+    dropped = {"seed": 0, "sibling": 0, "soft_link": 0, "structural_link": 0}
     for rank, neighbor in enumerate(ranked, start=1):
+        if len(evidence) >= args.limit:
+            break
         related = by_id[neighbor.issue_id]
+        if related.id in excluded:
+            dropped["seed"] += 1
+            continue
+        if args.exclude_siblings and (parent := _parent_of(seed)) and _parent_of(related) == parent:
+            dropped["sibling"] += 1
+            continue
         context = _structural_context(seed, related)
         if args.orphans_only and context != NO_STRUCTURAL_LINK:
+            dropped["structural_link"] += 1
             continue
         claims = extract_claims((seed, related), (seed, related), resolver=resolver)
+        if args.respect_soft_links and (claims or related.id in settled):
+            dropped["soft_link"] += 1
+            continue
         evidence.append(
             {
                 **_issue_summary(related),
+                "assignee": related.assignee or None,
+                "updated_at": related.updated_at or None,
+                "guards": guard_flags(
+                    related,
+                    labels=args.guard_label or DEFAULT_GUARD_LABELS,
+                    keywords=args.guard_keyword or DEFAULT_GUARD_KEYWORDS,
+                ),
                 "similarity": round(neighbor.similarity, 6),
                 "rank": rank,
                 # Where the seed ranks among this neighbor's own neighbors.
@@ -1042,15 +1238,17 @@ def _neighbor_evidence(
                 ],
             }
         )
-        if args.orphans_only and len(evidence) >= args.limit:
-            break
-    return evidence
+    return evidence, {"score_baseline": baseline, "dropped": dropped}
 
 
 def _neighbors(args: argparse.Namespace) -> int:
     seeds = _neighbor_seed_ids(args)
     if args.limit < 0:
         raise ValueError("--limit cannot be negative")
+    output_format = args.format or ("json" if args.as_json else "markdown")
+    if args.as_json and output_format != "json":
+        raise ValueError("--json conflicts with --format " + output_format)
+    exclude_seeds = len(seeds) > 1 if args.exclude_seeds is None else args.exclude_seeds
     snapshot, issues = _load_source(args)
     if not args.include_ephemeral:
         issues = tuple(issue for issue in issues if not issue.ephemeral)
@@ -1071,19 +1269,36 @@ def _neighbors(args: argparse.Namespace) -> int:
         ]
     )
     resolver = IssueIdResolver(by_id)
-    results = [
-        (
-            _issue_summary(by_id[seed]),
-            _neighbor_evidence(
-                args, by_id[seed], issues, by_id, vectors, similarity_index, pool, resolver
-            ),
+    excluded = frozenset(seeds) if exclude_seeds else frozenset()
+    settled = (
+        resolved_elsewhere(issues, issues, resolver=resolver)
+        if args.respect_soft_links
+        else frozenset()
+    )
+    results = []
+    for seed in seeds:
+        evidence, diagnostics = _neighbor_evidence(
+            args,
+            by_id[seed],
+            issues,
+            by_id,
+            vectors,
+            similarity_index,
+            pool,
+            resolver,
+            excluded,
+            settled,
         )
-        for seed in seeds
-    ]
+        results.append((_issue_summary(by_id[seed]), evidence, diagnostics))
     filters = {
         "include_closed": bool(args.include_closed),
         "structural_link": "none-recorded" if args.orphans_only else "any",
         "limit": args.limit,
+        "exclude_seeds": exclude_seeds,
+        "exclude_siblings": bool(args.exclude_siblings),
+        "respect_soft_links": bool(args.respect_soft_links),
+        "guard_labels": list(args.guard_label or DEFAULT_GUARD_LABELS),
+        "guard_keywords": list(args.guard_keyword or DEFAULT_GUARD_KEYWORDS),
     }
     if len(results) == 1:
         payload = build_neighbors_payload(
@@ -1093,8 +1308,9 @@ def _neighbors(args: argparse.Namespace) -> int:
             model=_model_metadata(provider),
             cache=cache_stats,
             filters=filters,
+            diagnostics=results[0][2],
         )
-        rendered = _json_text(payload) if args.as_json else render_neighbors_markdown(payload)
+        markdown = render_neighbors_markdown
     else:
         payload = build_neighbors_batch_payload(
             results,
@@ -1103,7 +1319,13 @@ def _neighbors(args: argparse.Namespace) -> int:
             cache=cache_stats,
             filters=filters,
         )
-        rendered = _json_text(payload) if args.as_json else render_neighbors_batch_markdown(payload)
+        markdown = render_neighbors_batch_markdown
+    if output_format == "json":
+        rendered = _json_text(payload)
+    elif output_format == "table":
+        rendered = render_neighbors_table(payload)
+    else:
+        rendered = markdown(payload)
     if args.output:
         _atomic_text(args.output, rendered)
     sys.stdout.write(rendered)
@@ -1157,6 +1379,106 @@ def _mentions(args: argparse.Namespace) -> int:
         _atomic_text(args.output, rendered)
     sys.stdout.write(rendered)
     return _divergence_exit(args, snapshot)
+
+
+def _superseded(args: argparse.Namespace) -> int:
+    if args.limit < 1 or args.per_change < 1:
+        raise ValueError("--limit and --per-change must be at least 1")
+    if args.changes_file:
+        changes = changes_from_file(args.changes_file)
+        source = {"kind": "changes-file", "path": str(args.changes_file)}
+    else:
+        changes = changes_from_git(args.repo, args.since, ref=args.ref)
+        source = {"kind": "git", "ref": args.ref, "since": args.since}
+    snapshot, issues = _load_source(args)
+    if not args.include_ephemeral:
+        issues = tuple(issue for issue in issues if not issue.ephemeral)
+    closed_since = earliest_merge(changes) if args.include_closed_since else None
+    scope = tuple(
+        issue
+        for issue in issues
+        if in_scope(issue, include_epics=args.include_epics, closed_since=closed_since)
+    )
+    provider = _provider(args.provider)
+    cache_path, _ = _workspace_paths(snapshot.workspace_id)
+    vectors, cache_stats = _load_vectors(scope, provider, VectorCache(cache_path))
+    # Change text is encoded in memory only: it never reaches the vector cache.
+    facet_texts = [[text for _label, text in change.facets()] for change in changes]
+    flat = provider.encode([text for texts in facet_texts for text in texts]) if changes else []
+    facet_vectors, offset = [], 0
+    for texts in facet_texts:
+        facet_vectors.append(flat[offset : offset + len(texts)])
+        offset += len(texts)
+    rows = superseded_candidates(
+        changes,
+        facet_vectors,
+        scope,
+        vectors,
+        IssueIdResolver(issue.id for issue in issues),
+        per_change=args.per_change,
+    )
+    labels = args.guard_label or DEFAULT_GUARD_LABELS
+    keywords = args.guard_keyword or DEFAULT_GUARD_KEYWORDS
+
+    def row(item: dict[str, Any]) -> dict[str, Any]:
+        issue = item["issue"]
+        return {
+            "id": issue.id,
+            "title": issue.title,
+            "status": issue.status,
+            "issue_type": issue.issue_type,
+            "priority": issue.priority,
+            "labels": list(issue.labels),
+            "assignee": issue.assignee or None,
+            "parent_id": issue.parent_id,
+            "guards": guard_flags(issue, labels=labels, keywords=keywords),
+            "change_count": item["change_count"],
+            "evidence": item["evidence"],
+        }
+
+    named = [row(item) for item in rows if item["evidence"]["basis"] == "named"]
+    similar = [row(item) for item in rows if item["evidence"]["basis"] == "similar"]
+    payload = build_superseded_payload(
+        named,
+        similar[: args.limit],
+        changes=[change.evidence() for change in changes],
+        snapshot=asdict(snapshot),
+        model=_model_metadata(provider),
+        cache=cache_stats,
+        filters={
+            "source": source,
+            "limit": args.limit,
+            "per_change": args.per_change,
+            "include_epics": bool(args.include_epics),
+            "include_closed_since": closed_since.isoformat() if closed_since else None,
+            "include_ephemeral": bool(args.include_ephemeral),
+            "guard_labels": list(labels),
+            "guard_keywords": list(keywords),
+        },
+        summary={
+            "changes_read": len(changes),
+            "records_compared": len(scope),
+            "named_count": len(named),
+            "similar_count": len(similar),
+            "omitted_by_limit": max(0, len(similar) - args.limit),
+        },
+    )
+    rendered = _json_text(payload) if args.as_json else render_superseded_markdown(payload)
+    if args.output:
+        _atomic_text(args.output, rendered)
+    sys.stdout.write(rendered)
+    return _divergence_exit(args, snapshot)
+
+
+def _schema(args: argparse.Namespace) -> int:
+    if not args.report_type:
+        sys.stdout.write("\n".join(report_types()) + "\n")
+        return 0
+    if args.as_json:
+        sys.stdout.write(_json_text(load_schema(args.report_type)))
+    else:
+        sys.stdout.write("\n".join(field_lines(args.report_type)) + "\n")
+    return 0
 
 
 def _orphans(args: argparse.Namespace) -> int:
@@ -1877,6 +2199,10 @@ def main(argv: list[str] | None = None) -> int:
             return _mentions(args)
         if args.command == "orphans":
             return _orphans(args)
+        if args.command == "schema":
+            return _schema(args)
+        if args.command == "superseded":
+            return _superseded(args)
         if args.command == "match":
             return _match(args)
         return _sweep(args)

@@ -12,7 +12,9 @@
     "model": { "$ref": "#/$defs/model" },
     "cache": { "$ref": "#/$defs/cache" },
     "issue": { "$ref": "#/$defs/issue" },
-    "neighbors": { "type": "array", "items": { "$ref": "#/$defs/neighbor" } }
+    "neighbors": { "type": "array", "items": { "$ref": "#/$defs/neighbor" } },
+    "score_baseline": { "$ref": "#/$defs/score-baseline" },
+    "dropped": { "$ref": "#/$defs/dropped" }
   },
   "additionalProperties": true,
   "$defs": {
@@ -104,9 +106,37 @@
         "priority": { "type": ["integer", "null"] },
         "labels": { "type": "array", "items": { "type": "string" } },
         "parent_id": { "type": ["string", "null"] },
-        "dependencies": { "type": "array", "items": { "type": "string" } }
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "assignee": {
+          "type": ["string", "null"],
+          "description": "Assignee recorded by the tracker, when there is one."
+        },
+        "updated_at": { "type": ["string", "null"] }
       },
       "additionalProperties": true
+    },
+    "score-baseline": {
+      "type": "object",
+      "description": "Percentiles of the seed's similarity to every record in scope; scores near p90 are the neighbourhood, not a match.",
+      "required": ["population"],
+      "properties": {
+        "population": { "type": "integer", "minimum": 0 },
+        "p50": { "type": "number" },
+        "p90": { "type": "number" },
+        "p99": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "dropped": {
+      "type": "object",
+      "description": "Ranked records skipped before --limit was reached, by filter.",
+      "properties": {
+        "seed": { "type": "integer", "minimum": 0 },
+        "sibling": { "type": "integer", "minimum": 0 },
+        "soft_link": { "type": "integer", "minimum": 0 },
+        "structural_link": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
     },
     "neighbor": {
       "allOf": [
@@ -115,11 +145,36 @@
           "type": "object",
           "required": ["similarity"],
           "properties": {
-            "similarity": { "type": "number", "minimum": -1, "maximum": 1 },
-            "rank": { "type": "integer", "minimum": 1 },
-            "reverse_rank": { "type": "integer", "minimum": 1 },
-            "structural_context": { "type": "string" },
-            "text_claims": { "type": "array", "items": { "$ref": "#/$defs/text-claim" } }
+            "similarity": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1,
+              "description": "Cosine similarity, -1..1. Model- and corpus-specific: compare with score_baseline, not a fixed cutoff."
+            },
+            "rank": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Position among the seed's ranked neighbors before any filter (1 is nearest)."
+            },
+            "reverse_rank": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Where the seed ranks among this neighbor's own neighbors; small on both sides is the strongest signal."
+            },
+            "structural_context": {
+              "type": "string",
+              "description": "Recorded parent or dependency relationship between seed and neighbor, or 'none recorded'."
+            },
+            "text_claims": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/text-claim" },
+              "description": "Lineage claims either record makes about the other in prose (duplicate of, folded into, ...)."
+            },
+            "guards": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Triage flags: label:<owner label>, in-progress-assigned, keyword:<word>. Needs a human before any fold or close."
+            }
           }
         }
       ]
