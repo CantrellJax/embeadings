@@ -158,8 +158,10 @@ under `dropped`. `--exclude-seeds` drops neighbors that are themselves seeds; it
 with several seeds, because in a sprint sweep seed-to-seed hits are the sprint the caller already
 knows about (`--no-exclude-seeds` restores them). `--exclude-siblings` drops neighbors that share the
 seed's direct parent (the recorded parent, else the one a hierarchical ID such as `abc12.4` spells). `--respect-soft-links` drops pairs whose text already records a lineage claim
-(`FOLDED into X`, `Folded in: X`, `Duplicate of X`, `Superseded by X`), so a folded pair does not
-resurface in the next sweep.
+(`FOLDED into X`, `Folded in: X`, `Duplicate of X`, `Superseded by X`), and drops any neighbor whose
+own text says its work went elsewhere (folded into, duplicate of, superseded or fixed by another
+record, or `Superseded by #5495` / `Merged in #5469`), whichever seed found it, so a folded record
+does not resurface in the next sweep.
 
 Each neighbor carries `assignee`, `updated_at`, and `guards`: advisory triage flags computed from
 labels, status, assignee, and title words. `label:<label>` marks an owner label (`--guard-label`,

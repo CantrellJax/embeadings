@@ -14,7 +14,9 @@ Field-report follow-ups from the 2026-10-07 onCall sprint sweep (1,815 open bead
   `--respect-soft-links`; per-neighbor `assignee`, `updated_at`, and `guards` (owner labels,
   in-progress with an assignee, prod/published/privacy/security/money words); per-seed
   `score_baseline` and `dropped`; `merged_neighbors` across seeds; and `--format table`.
-- `mentions` reads `Folded in: X` as an absorbs claim.
+- `mentions` reads `Folded in: X` as an absorbs claim; `--respect-soft-links` also drops records
+  whose own text says they were folded into, duplicate, or were superseded by another record or a
+  `#PR` (`Superseded by #5495`, `Merged in #5469`), whichever seed found them.
 - Add `embead schema [REPORT_TYPE]`, printing a report's fields one per line, and document the
   neighbor fields in `neighbors --help`.
 

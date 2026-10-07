@@ -1745,6 +1745,16 @@ def test_neighbors_exclude_siblings_and_soft_links(monkeypatch, tmp_path, capsys
     assert payload["dropped"] == {"seed": 0, "sibling": 2, "soft_link": 1, "structural_link": 0}
 
 
+def test_respect_soft_links_drops_records_folded_elsewhere(monkeypatch, tmp_path, capsys) -> None:
+    # demo-4 says it was folded into demo-1; seeded from demo-3 it must still not resurface.
+    payload = json.loads(
+        _sprint_neighbors(monkeypatch, tmp_path, capsys, "demo-3", "--respect-soft-links", "--json")
+    )
+
+    assert "demo-4" not in {item["id"] for item in payload["neighbors"]}
+    assert payload["dropped"]["soft_link"] == 1
+
+
 def test_exclude_siblings_falls_back_to_hierarchical_ids() -> None:
     assert cli._parent_of(IssueRecord(id="proj-abc.17", title="", status="open")) == "proj-abc"
     assert cli._parent_of(IssueRecord(id="proj-abc.2.4", title="", status="open")) == "proj-abc.2"

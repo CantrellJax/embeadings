@@ -39,7 +39,7 @@ from .incremental import (
 )
 from .linear import LinearAdapter
 from .match import candidate_texts, load_candidates, match_candidates
-from .mentions import extract_claims
+from .mentions import extract_claims, resolved_elsewhere
 from .mentions import kind_counts as claim_kind_counts
 from .models import IssueRecord, WorkspaceSnapshot, canonical_text, semantic_field_texts
 from .orphans import (
@@ -215,8 +215,9 @@ def _parser() -> argparse.ArgumentParser:
         "--respect-soft-links",
         action="store_true",
         help=(
-            "Drop neighbors whose text already records a lineage claim with the seed "
-            "('FOLDED into', 'Duplicate of', 'Superseded by', ...)"
+            "Drop neighbors whose text records a lineage claim with the seed, or says the "
+            "neighbor itself was folded into, duplicates, or was superseded by another "
+            "record or a #PR"
         ),
     )
     neighbors.add_argument(
@@ -1179,6 +1180,7 @@ def _neighbor_evidence(
     pool: Any,
     resolver: IssueIdResolver,
     excluded: frozenset[str],
+    settled: frozenset[str] = frozenset(),
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     # Filters are properties of the pair, not of the ranking, so the limit has to apply to the
     # surviving neighbors; and the score baseline needs the whole population. Rank everything.
@@ -1208,7 +1210,7 @@ def _neighbor_evidence(
             dropped["structural_link"] += 1
             continue
         claims = extract_claims((seed, related), (seed, related), resolver=resolver)
-        if args.respect_soft_links and claims:
+        if args.respect_soft_links and (claims or related.id in settled):
             dropped["soft_link"] += 1
             continue
         evidence.append(
@@ -1268,6 +1270,11 @@ def _neighbors(args: argparse.Namespace) -> int:
     )
     resolver = IssueIdResolver(by_id)
     excluded = frozenset(seeds) if exclude_seeds else frozenset()
+    settled = (
+        resolved_elsewhere(issues, issues, resolver=resolver)
+        if args.respect_soft_links
+        else frozenset()
+    )
     results = []
     for seed in seeds:
         evidence, diagnostics = _neighbor_evidence(
@@ -1280,6 +1287,7 @@ def _neighbors(args: argparse.Namespace) -> int:
             pool,
             resolver,
             excluded,
+            settled,
         )
         results.append((_issue_summary(by_id[seed]), evidence, diagnostics))
     filters = {
