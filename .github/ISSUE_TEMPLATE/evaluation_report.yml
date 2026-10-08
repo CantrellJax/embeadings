@@ -26,7 +26,7 @@ body:
     id: versions
     attributes:
       label: Versions under test
-      placeholder: "emBEADings 0.4.3; Beads 1.0.5; model revision …"
+      placeholder: "emBEADings 0.5.0; Beads 1.0.5; model revision …"
     validations:
       required: true
   - type: dropdown

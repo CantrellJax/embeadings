@@ -3,7 +3,7 @@
 <img src="https://raw.githubusercontent.com/DyrtyJax/embeadings/main/assets/brand/embeadings-mark.svg" width="72" alt="Two epic molecules reaching toward an amber collision point">
 
 [![CI](https://github.com/DyrtyJax/embeadings/actions/workflows/ci.yml/badge.svg)](https://github.com/DyrtyJax/embeadings/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/DyrtyJax/embeadings?include_prereleases)](https://github.com/DyrtyJax/embeadings/releases/tag/v0.4.3)
+[![Release](https://img.shields.io/github/v/release/DyrtyJax/embeadings?include_prereleases)](https://github.com/DyrtyJax/embeadings/releases/tag/v0.5.0)
 
 Find engineering work that may trip over the same code—without changing the tracker or sending issue
 text to an embedding API.
@@ -73,7 +73,7 @@ For an immutable GitHub fallback, install the verified release wheel directly:
 
 ```bash
 python -m pip install \
-  "https://github.com/DyrtyJax/embeadings/releases/download/v0.4.3/embeadings-0.4.3-py3-none-any.whl"
+  "https://github.com/DyrtyJax/embeadings/releases/download/v0.5.0/embeadings-0.5.0-py3-none-any.whl"
 ```
 
 The first semantic command downloads the pinned
@@ -81,12 +81,12 @@ The first semantic command downloads the pinned
 locally. `collisions` does not load an embedding model.
 
 Release assets include a source archive and `SHA256SUMS`. See the
-[v0.4.3 release](https://github.com/DyrtyJax/embeadings/releases/tag/v0.4.3) for versioned artifacts and
+[v0.5.0 release](https://github.com/DyrtyJax/embeadings/releases/tag/v0.5.0) for versioned artifacts and
 checksums.
 
 ## What a lead looks like
 
-![Synthetic terminal example of an observed exact-file collision](https://raw.githubusercontent.com/DyrtyJax/embeadings/v0.4.3/assets/brand/synthetic-collision-evidence.svg)
+![Synthetic terminal example of an observed exact-file collision](https://raw.githubusercontent.com/DyrtyJax/embeadings/v0.5.0/assets/brand/synthetic-collision-evidence.svg)
 
 This shortened example is derived from the committed synthetic collision fixture:
 
@@ -104,9 +104,9 @@ This shortened example is derived from the committed synthetic collision fixture
 
 The full report also records repository provenance, revision relation, hub suppression, warnings, and
 the read-only policy. It contains pointers rather than source snippets. See
-[`examples/collisions.json`](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/examples/collisions.json)
+[`examples/collisions.json`](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/examples/collisions.json)
 and the
-[example guide](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/examples/README.md).
+[example guide](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/examples/README.md).
 
 ## Why trust it?
 
@@ -118,11 +118,11 @@ and the
 | Release validation | Full CI passed across Linux, macOS, Windows, Python 3.11 and 3.14; wheel/sdist checksums and provenance published | Supply-chain and test evidence, not semantic quality |
 | Repeatability | Evaluation outputs were byte-stable and non-mutating | Determinism does not make a weak lead correct |
 
-Read the [dogfood release-gate story](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/docs/articles/dogfooding-v040-worktree-gate.md),
-[aggregate v0.4.0 worktree gate](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/docs/research/code-surface-v040-release-gate.md),
-[Ruff scale review](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/docs/research/ruff-scale-surrogate-01.md),
+Read the [dogfood release-gate story](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/docs/articles/dogfooding-v040-worktree-gate.md),
+[aggregate v0.4.0 worktree gate](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/docs/research/code-surface-v040-release-gate.md),
+[Ruff scale review](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/docs/research/ruff-scale-surrogate-01.md),
 and the
-[research index](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/docs/research/README.md)
+[research index](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/docs/research/README.md)
 for methods, failure patterns, and limitations.
 
 ## How it works
@@ -145,7 +145,7 @@ Beads or one Linear team
 code-surface analysis when genuine local Git evidence exists, and writes a complete audit report to
 external user state. Use `sweep` for experimental policy controls and `neighbors` for one-record
 inspection. The default is a reviewer-capacity budget, not corpus coverage; see the
-[review-budget decision](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/docs/decisions/review-budget-default.md).
+[review-budget decision](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/docs/decisions/review-budget-default.md).
 
 For `triage`, `sweep`, and `batch`, use `--output-dir DIRECTORY` when you want the complete JSON,
 Markdown, and per-batch artifact set. Use `--output report.json` or `--output report.md` for one
@@ -185,7 +185,7 @@ embead --source linear --linear-team ENG collisions
 
 `LINEAR_ACCESS_TOKEN` accepts an OAuth token instead; set only one credential. The CLI queries one
 selected team through Linear GraphQL and does not reuse credentials held by an MCP or agent host. See
-the [Linear adapter contract](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/docs/linear.md).
+the [Linear adapter contract](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/docs/linear.md).
 
 ## Companion: emBEADify
 
@@ -207,7 +207,7 @@ stays read-only.
 
 The first model download is network activity. Prepare it before loading private issues when evaluating
 under OS-level network denial. See the
-[safe offline evaluation guide](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/docs/evaluation.md).
+[safe offline evaluation guide](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/docs/evaluation.md).
 
 ## Good fit / poor fit
 
@@ -231,13 +231,13 @@ python scripts/validate.py
 
 The bootstrap refuses to reuse an active environment from another checkout. Validation checks the
 editable `embead` import target before formatting, lint, tests, and release checks. Read
-[`CONTRIBUTING.md`](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/CONTRIBUTING.md)
+[`CONTRIBUTING.md`](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/CONTRIBUTING.md)
 before submitting fixtures or reports; private tracker content
 must never be committed.
 
 ## Agent plugin preview
 
-[`plugins/embeadings`](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/plugins/embeadings/README.md)
+[`plugins/embeadings`](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/plugins/embeadings/README.md)
 packages `triage`, `collisions`, and `evaluate`
 skills for local Codex and Claude Code development. It delegates to the installed CLI, forces schema-v1
 JSON, and verifies the read-only policy. It is not yet a marketplace release and grants no tracker-write
@@ -245,13 +245,13 @@ authority.
 
 ## Documentation
 
-- [Documentation index](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/docs/README.md)
-- [CLI and product specification](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/docs/spec.md)
-- [Consumer and schema contract](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/docs/consumer-contract.md)
-- [Performance and scale evaluation](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/docs/performance.md)
-- [Research and evaluation ledger](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/docs/research/README.md)
-- [Versioned JSON Schemas](https://github.com/DyrtyJax/embeadings/tree/v0.4.3/schemas/v1) and
-  [synthetic examples](https://github.com/DyrtyJax/embeadings/blob/v0.4.3/examples/README.md)
+- [Documentation index](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/docs/README.md)
+- [CLI and product specification](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/docs/spec.md)
+- [Consumer and schema contract](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/docs/consumer-contract.md)
+- [Performance and scale evaluation](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/docs/performance.md)
+- [Research and evaluation ledger](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/docs/research/README.md)
+- [Versioned JSON Schemas](https://github.com/DyrtyJax/embeadings/tree/v0.5.0/schemas/v1) and
+  [synthetic examples](https://github.com/DyrtyJax/embeadings/blob/v0.5.0/examples/README.md)
 
 ## Principles
 
