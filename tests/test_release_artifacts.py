@@ -93,7 +93,7 @@ def test_source_contents_require_runtime_source_and_schemas(tmp_path: Path) -> N
 
 
 def test_project_version_matches_public_package() -> None:
-    assert verify_release.project_version() == "0.5.0"
+    assert verify_release.project_version() == "0.5.1"
 
 
 def test_package_readme_uses_pypi_safe_absolute_links() -> None:

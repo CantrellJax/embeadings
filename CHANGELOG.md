@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.1 — 2026-10-08
+
+Discoverability; no behaviour changes.
+
+- The README now leads with what people search for (duplicate and related issues in Beads and Linear,
+  and open issues a merge already fixed) and links the project site, its guides, and the Beads community
+  tools listing.
+- Package metadata: the PyPI homepage is now https://embeadings.jacksoncantrell.com, with a Source URL
+  and broader keywords.
+- Repository URLs point to CantrellJax (the account was renamed from DyrtyJax).
+- New social preview card in the project site's style.
+
 ## 0.5.0 — 2026-10-07
 
 Field-report follow-ups from the 2026-10-07 onCall sprint sweep (1,815 open beads, ~85 merges).
