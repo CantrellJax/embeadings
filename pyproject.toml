@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Jackson Cantrell" }]
-keywords = ["beads", "linear", "semantic-search", "triage", "developer-tools"]
+keywords = ["beads", "linear", "duplicate-issues", "issue-tracker", "backlog", "deduplication", "embeddings", "semantic-search", "triage", "ai-agents", "developer-tools"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -43,12 +43,13 @@ benchmark = [
 embead = "embead.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/DyrtyJax/embeadings"
-Documentation = "https://github.com/DyrtyJax/embeadings/blob/main/docs/README.md"
-Issues = "https://github.com/DyrtyJax/embeadings/issues"
-Repository = "https://github.com/DyrtyJax/embeadings.git"
-Changelog = "https://github.com/DyrtyJax/embeadings/blob/main/CHANGELOG.md"
-Releases = "https://github.com/DyrtyJax/embeadings/releases"
+Homepage = "https://embeadings.jacksoncantrell.com"
+Source = "https://github.com/CantrellJax/embeadings"
+Documentation = "https://github.com/CantrellJax/embeadings/blob/main/docs/README.md"
+Issues = "https://github.com/CantrellJax/embeadings/issues"
+Repository = "https://github.com/CantrellJax/embeadings.git"
+Changelog = "https://github.com/CantrellJax/embeadings/blob/main/CHANGELOG.md"
+Releases = "https://github.com/CantrellJax/embeadings/releases"
 
 [tool.hatch.version]
 path = "src/embead/_version.py"
