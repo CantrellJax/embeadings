@@ -24,7 +24,7 @@ body:
     id: embeadings-version
     attributes:
       label: emBEADings version and commit
-      placeholder: "0.4.3; commit abc1234 if testing a checkout"
+      placeholder: "0.5.0; commit abc1234 if testing a checkout"
     validations:
       required: true
   - type: input

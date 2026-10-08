@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-10-07
 
 Field-report follow-ups from the 2026-10-07 onCall sprint sweep (1,815 open beads, ~85 merges).
 
