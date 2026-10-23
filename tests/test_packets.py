@@ -91,7 +91,7 @@ def run(monkeypatch, tmp_path, capsys):
         output = tmp_path / "packets.jsonl"
         assert cli.main(["packets", *argv, "--output", str(output)]) == 0
         summary = capsys.readouterr().out
-        packets = [json.loads(line) for line in output.read_text().splitlines()]
+        packets = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
         return {packet["id"]: packet for packet in packets}, summary, loads
 
     return invoke
