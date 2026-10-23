@@ -60,6 +60,12 @@
         },
         "include_ephemeral": {
           "type": "boolean"
+        },
+        "done_parents": {
+          "type": "boolean"
+        },
+        "include_epics": {
+          "type": "boolean"
         }
       }
     },
@@ -96,6 +102,14 @@
         "parentless_count": {
           "type": "integer",
           "minimum": 0
+        },
+        "deferred_parent_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "done_parent_count": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "additionalProperties": true
@@ -110,6 +124,20 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/parentlessGroup"
+      }
+    },
+    "deferred_parent": {
+      "type": "array",
+      "description": "Open, in-progress, or blocked children of a deferred parent. Not dangling: a deferred parent is live.",
+      "items": {
+        "$ref": "#/$defs/deferredChild"
+      }
+    },
+    "done_parents": {
+      "type": "array",
+      "description": "With --done-parents: open, blocked, or deferred parents (epics only with --include-epics) whose children are all closed.",
+      "items": {
+        "$ref": "#/$defs/doneParent"
       }
     }
   },
@@ -272,6 +300,90 @@
             },
             "additionalProperties": false
           }
+        }
+      },
+      "additionalProperties": false
+    },
+    "deferredChild": {
+      "type": "object",
+      "required": [
+        "issue_id",
+        "issue_type",
+        "status",
+        "priority",
+        "title",
+        "parent_id",
+        "parent_status"
+      ],
+      "properties": {
+        "issue_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issue_type": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "priority": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "parent_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_status": {
+          "const": "deferred"
+        }
+      },
+      "additionalProperties": false
+    },
+    "doneParent": {
+      "type": "object",
+      "required": [
+        "issue_id",
+        "issue_type",
+        "status",
+        "priority",
+        "title",
+        "child_count"
+      ],
+      "properties": {
+        "issue_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issue_type": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "open",
+            "blocked",
+            "deferred"
+          ]
+        },
+        "priority": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "child_count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Children, all closed."
         }
       },
       "additionalProperties": false

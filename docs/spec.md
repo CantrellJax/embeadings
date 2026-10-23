@@ -100,7 +100,7 @@ embead sweep [--size 9]
 embead batch [--size 9]
 embead collisions [--worktree-map ISSUE_ID=PATH] [--branch-pattern REGEX] [--min-confidence LEVEL]
 embead mentions [--include-linked] [--include-closed] [--include-mentions] [--limit 50]
-embead orphans [--include-parentless] [--include-ephemeral]
+embead orphans [--include-parentless] [--done-parents [--include-epics]] [--include-ephemeral]
 embead readiness [--offline]
 embead doctor [--offline]
 embead capabilities [--json]
@@ -298,7 +298,7 @@ mentions whose spelling carries a dash or dot. The report does not load an embed
 ### `orphans`
 
 ```bash
-embead orphans [--include-parentless] [--include-ephemeral]
+embead orphans [--include-parentless] [--done-parents [--include-epics]] [--include-ephemeral]
 ```
 
 A structural hygiene report that needs no embedding model. It lists live issues (every status
@@ -316,6 +316,17 @@ no parent at all under a separate `parentless` field, grouped by `issue_type`, s
 are normal and are never mixed into the dangling-parent list. Ephemeral records are not reported
 unless `--include-ephemeral` is set, but they still count as parents. The report only reads; it
 reparents, reopens, and closes nothing.
+
+Open, in-progress, and blocked children of a deferred parent are listed separately under
+`deferred_parent` (`parent_status` is `deferred`): they are not dangling, since a deferred parent is
+live, but active work under parked work deserves a look. Deferred children of a deferred parent are
+consistent and are not listed.
+
+`--done-parents` adds `done_parents`: open, blocked, or deferred parents with at least one child whose
+children are all closed, with `child_count`. They may be finished work nobody closed. An in-progress
+parent is held by someone and is never listed. Epics are left out unless `--include-epics`, because an
+epic is often kept open until a later phase is filed. A live ephemeral child still keeps its parent
+off the list.
 
 ### `match`
 

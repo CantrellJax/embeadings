@@ -47,6 +47,8 @@ from .mentions import kind_counts as claim_kind_counts
 from .models import IssueRecord, WorkspaceSnapshot, canonical_text, semantic_field_texts
 from .orphans import (
     find_dangling_parents,
+    find_deferred_parent_children,
+    find_done_parents,
     find_parentless,
     group_parentless,
     is_live,
@@ -396,6 +398,19 @@ def _parser() -> argparse.ArgumentParser:
         "--include-parentless",
         action="store_true",
         help="Also list live issues with no parent, grouped by issue type, in a separate section",
+    )
+    orphans.add_argument(
+        "--done-parents",
+        action="store_true",
+        help=(
+            "Also list open, blocked, or deferred parents whose children are all closed "
+            "(epics only with --include-epics)"
+        ),
+    )
+    orphans.add_argument(
+        "--include-epics",
+        action="store_true",
+        help="Let --done-parents list epics too (excluded by default)",
     )
     _ephemeral_argument(orphans)
     orphans.add_argument("--json", action="store_true", dest="as_json")
@@ -1573,20 +1588,32 @@ def _orphans(args: argparse.Namespace) -> int:
     reportable = [issue for issue in issues if args.include_ephemeral or not issue.ephemeral]
     dangling = find_dangling_parents(issues, reportable=reportable)
     parentless = find_parentless(reportable) if args.include_parentless else ()
+    deferred = find_deferred_parent_children(issues, reportable=reportable)
+    done = (
+        find_done_parents(issues, include_epics=args.include_epics, reportable=reportable)
+        if args.done_parents
+        else ()
+    )
     payload = build_orphans_payload(
         dangling,
         snapshot=asdict(snapshot),
         filters={
             "include_parentless": bool(args.include_parentless),
             "include_ephemeral": bool(args.include_ephemeral),
+            "done_parents": bool(args.done_parents),
+            "include_epics": bool(args.include_epics),
         },
         summary={
             "live_issues_scanned": sum(is_live(issue) for issue in reportable),
             "dangling_parent_count": len(dangling),
             "parent_status_counts": orphan_parent_status_counts(dangling),
             "parentless_count": len(parentless),
+            "deferred_parent_count": len(deferred),
+            "done_parent_count": len(done),
         },
         parentless=group_parentless(parentless),
+        deferred_parent=deferred,
+        done_parents=done,
     )
     rendered = _json_text(payload) if args.as_json else render_orphans_markdown(payload)
     if args.output:

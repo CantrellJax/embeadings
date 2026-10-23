@@ -15,6 +15,9 @@ from typing import Any
 
 CLOSED_STATUS = "closed"
 PARENT_STATUSES = ("closed", "missing")
+# Parents that may be finished without anyone noticing; in_progress means someone holds it.
+DONE_PARENT_STATUSES = frozenset({"open", "blocked", "deferred"})
+DEFERRED_STATUS = "deferred"
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +29,16 @@ class DanglingParent:
     title: str
     parent_id: str
     parent_status: str
+
+
+@dataclass(frozen=True, slots=True)
+class DoneParent:
+    issue_id: str
+    issue_type: str
+    status: str
+    priority: int | None
+    title: str
+    child_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,3 +138,69 @@ def group_parentless(rows: Iterable[Parentless]) -> list[dict[str, Any]]:
 def parent_status_counts(rows: Iterable[DanglingParent]) -> dict[str, int]:
     counts = Counter(row.parent_status for row in rows)
     return {status: counts[status] for status in PARENT_STATUSES if counts[status]}
+
+
+def find_done_parents(
+    issues: Sequence[Any], *, include_epics: bool = False, reportable: Iterable[Any] | None = None
+) -> tuple[DoneParent, ...]:
+    """Return open, blocked, or deferred parents whose children are all closed.
+
+    Children are the records in ``issues`` that name the parent; a parent with none is not
+    reported.  ``reportable`` narrows which parents may be reported (for example, to drop
+    ephemeral ones) without hiding a live child.  Epics are left out unless ``include_epics``: a
+    finished epic is often kept open on purpose until a later phase is filed.
+    """
+
+    population = list(issues if reportable is None else reportable)
+    children: dict[str, list[Any]] = {}
+    for issue in issues:
+        if parent_id := getattr(issue, "parent_id", None):
+            children.setdefault(parent_id, []).append(issue)
+    rows = [
+        DoneParent(
+            issue_id=str(issue.id),
+            issue_type=issue.issue_type,
+            status=issue.status,
+            priority=issue.priority,
+            title=issue.title,
+            child_count=len(children[str(issue.id)]),
+        )
+        for issue in population
+        if str(issue.status).casefold() in DONE_PARENT_STATUSES
+        and (include_epics or str(issue.issue_type).casefold() != "epic")
+        and children.get(str(issue.id))
+        and not any(is_live(child) for child in children[str(issue.id)])
+    ]
+    return tuple(sorted(rows, key=lambda row: row.issue_id))
+
+
+def find_deferred_parent_children(
+    issues: Sequence[Any], *, reportable: Iterable[Any] | None = None
+) -> tuple[DanglingParent, ...]:
+    """Return open, in-progress, or blocked children of a deferred parent.
+
+    A deferred parent is live, so these are not dangling; but active work under parked work is
+    worth a look.  Deferred children of a deferred parent are consistent and are left out.
+    """
+
+    by_id = {str(issue.id): issue for issue in issues}
+    rows = []
+    for issue in issues if reportable is None else reportable:
+        parent = by_id.get(getattr(issue, "parent_id", None) or "")
+        status = str(issue.status).casefold()
+        if parent is None or not is_live(issue) or status == DEFERRED_STATUS:
+            continue
+        if str(parent.status).casefold() != DEFERRED_STATUS:
+            continue
+        rows.append(
+            DanglingParent(
+                issue_id=str(issue.id),
+                issue_type=issue.issue_type,
+                status=issue.status,
+                priority=issue.priority,
+                title=issue.title,
+                parent_id=str(parent.id),
+                parent_status=DEFERRED_STATUS,
+            )
+        )
+    return tuple(sorted(rows, key=lambda row: (row.parent_id, row.issue_id)))

@@ -58,6 +58,8 @@ embead mentions
 
 # Live issues whose parent is closed or missing (structural, no model)
 embead orphans
+# ...plus live parents whose children are all closed
+embead orphans --done-parents
 
 # Nearest existing records for text that is not a bead yet (no placeholder record)
 embead match --title "Persist login across restarts" --body-file draft.txt

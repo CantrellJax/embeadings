@@ -327,6 +327,8 @@ def build_orphans_payload(
     filters: Any | None = None,
     summary: Any | None = None,
     parentless: Iterable[Any] | None = None,
+    deferred_parent: Iterable[Any] | None = None,
+    done_parents: Iterable[Any] | None = None,
 ) -> dict[str, Any]:
     """Build a structural report of live issues whose parent is closed or missing."""
 
@@ -345,6 +347,8 @@ def build_orphans_payload(
         "summary": _jsonable(summary or {}),
         "dangling_parent": [_jsonable(row) for row in dangling],
         "parentless": [_jsonable(group) for group in parentless or ()],
+        "deferred_parent": [_jsonable(row) for row in deferred_parent or ()],
+        "done_parents": [_jsonable(row) for row in done_parents or ()],
     }
 
 
@@ -1522,6 +1526,70 @@ def render_orphans_markdown(payload: Mapping[str, Any]) -> str:
                             _escape(_field(item, "status", default="unknown")),
                             _escape("" if priority is None else f"P{priority}"),
                             _escape(_field(item, "title", default="")),
+                        ]
+                    )
+                    + " |"
+                )
+            lines.append("")
+    deferred = payload.get("deferred_parent") or []
+    if deferred:
+        lines.extend(
+            [
+                "## Active children of a deferred parent",
+                "",
+                "Not dangling: a deferred parent is live. Listed because active work sits under "
+                "parked work.",
+                "",
+                "| Parent | Issue | Type | Status | Priority | Title |",
+                "|---|---|---|---|---|---|",
+            ]
+        )
+        for row in deferred:
+            priority = _field(row, "priority", default=None)
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _escape(_field(row, "parent_id", default="unknown")),
+                        _escape(_field(row, "issue_id", default="unknown")),
+                        _escape(_field(row, "issue_type", default="")),
+                        _escape(_field(row, "status", default="unknown")),
+                        _escape("" if priority is None else f"P{priority}"),
+                        _escape(_field(row, "title", default="")),
+                    ]
+                )
+                + " |"
+            )
+        lines.append("")
+    if _field(payload.get("filters") or {}, "done_parents", default=False):
+        done = payload.get("done_parents") or []
+        lines.extend(
+            [
+                "## Live parents whose children are all closed",
+                "",
+            ]
+        )
+        if not done:
+            lines.extend(["None.", ""])
+        else:
+            lines.extend(
+                [
+                    "| Parent | Type | Status | Priority | Closed children | Title |",
+                    "|---|---|---|---|---:|---|",
+                ]
+            )
+            for row in done:
+                priority = _field(row, "priority", default=None)
+                lines.append(
+                    "| "
+                    + " | ".join(
+                        [
+                            _escape(_field(row, "issue_id", default="unknown")),
+                            _escape(_field(row, "issue_type", default="")),
+                            _escape(_field(row, "status", default="unknown")),
+                            _escape("" if priority is None else f"P{priority}"),
+                            _escape(_field(row, "child_count", default=0)),
+                            _escape(_field(row, "title", default="")),
                         ]
                     )
                     + " |"
