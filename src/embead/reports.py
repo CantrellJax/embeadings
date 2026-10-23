@@ -107,8 +107,10 @@ def _record(value: Any) -> dict[str, Any]:
     if not isinstance(record, dict):
         raise TypeError("issues and evidence must be mapping-like objects")
     # Lifecycle source text can inform bounded ranking decisions but is never
-    # report content, even when a caller passes a full IssueRecord directly.
-    record.pop("close_reason", None)
+    # report content when a caller passes a full IssueRecord directly; a report row
+    # built as a mapping may carry it on purpose (closed neighbors do).
+    if not isinstance(value, Mapping):
+        record.pop("close_reason", None)
     if "id" not in record:
         issue_id = _field(value, "issue_id")
         if issue_id is not None:
@@ -231,9 +233,11 @@ def merge_neighbor_results(results: Iterable[Mapping[str, Any]]) -> list[dict[st
                     "assignee": _field(neighbor, "assignee", default=None),
                     "updated_at": _field(neighbor, "updated_at", default=None),
                     "guards": list(_field(neighbor, "guards", default=[]) or []),
+                    "close_reason": _field(neighbor, "close_reason", default=None),
                     "best_similarity": score,
                     "best_seed": seed_id,
                     "best_rank": _field(neighbor, "rank", default=None),
+                    "duplicate_direction": _field(neighbor, "duplicate_direction", default=None),
                     "seeds": [],
                 }
             elif score > row["best_similarity"]:
@@ -241,6 +245,7 @@ def merge_neighbor_results(results: Iterable[Mapping[str, Any]]) -> list[dict[st
                     best_similarity=score,
                     best_seed=seed_id,
                     best_rank=_field(neighbor, "rank", default=None),
+                    duplicate_direction=_field(neighbor, "duplicate_direction", default=None),
                 )
             row["seeds"].append(seed_id)
     rows = list(merged.values())
@@ -817,6 +822,13 @@ def _metadata_lines(payload: Mapping[str, Any]) -> list[str]:
     return lines
 
 
+def _neighbor_title(neighbor: Any) -> str:
+    title = str(_field(neighbor, "title", default="Untitled issue"))
+    if reason := _field(neighbor, "close_reason", default=None):
+        title += f" (closed: {_clip(' '.join(str(reason).split()), 120)})"
+    return title
+
+
 def render_neighbors_markdown(payload: Mapping[str, Any]) -> str:
     """Render a compact neighbors report; intentionally not a similarity matrix."""
 
@@ -862,8 +874,8 @@ def render_neighbors_markdown(payload: Mapping[str, Any]) -> str:
         lines.extend(
             [
                 "| Rank | Issue | Status | Title | Similarity | Reverse rank | "
-                "Structural context | Text claims |",
-                "|---:|---|---|---|---:|---:|---|---|",
+                "Structural context | Text claims | Duplicate |",
+                "|---:|---|---|---|---:|---:|---|---|---|",
             ]
         )
         for neighbor in neighbors:
@@ -885,11 +897,16 @@ def render_neighbors_markdown(payload: Mapping[str, Any]) -> str:
                         _escape(_field(neighbor, "rank", default="—")),
                         _escape(_field(neighbor, "id", "issue_id", default="unknown")),
                         _escape(_field(neighbor, "status", default="unknown")),
-                        _escape(_field(neighbor, "title", default="Untitled issue")),
+                        _escape(_neighbor_title(neighbor)),
                         score_text,
                         _escape(_field(neighbor, "reverse_rank", default=None) or "—"),
                         _escape(context),
                         _escape(claim_text or "—"),
+                        _escape(
+                            _DUPLICATE_LABELS.get(
+                                _field(neighbor, "duplicate_direction", default=None), "—"
+                            )
+                        ),
                     ]
                 )
                 + " |"
@@ -1196,6 +1213,16 @@ def _baseline_text(baseline: Any) -> str:
     )
 
 
+_DUPLICATE_LABELS = {
+    "neighbor_dup_of_seed": "neighbor-is-copy",
+    "seed_dup_of_neighbor": "seed-is-copy",
+}
+
+
+def _clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
 def render_neighbors_table(payload: Mapping[str, Any]) -> str:
     """One plain-text line per neighbor, deduplicated across seeds, for a terminal."""
 
@@ -1205,7 +1232,17 @@ def render_neighbors_table(payload: Mapping[str, Any]) -> str:
     else:
         rows = merge_neighbor_results([payload])
         results = [payload]
-    header = ("SCORE", "SEEDS", "BEST SEED", "NEIGHBOR", "STATUS", "PRI", "ASSIGNEE", "GUARDS")
+    header = (
+        "SCORE",
+        "SEEDS",
+        "BEST SEED",
+        "NEIGHBOR",
+        "STATUS",
+        "PRI",
+        "ASSIGNEE",
+        "DUPLICATE",
+        "GUARDS",
+    )
     table = [header]
     titles = []
     for row in rows:
@@ -1219,10 +1256,14 @@ def render_neighbors_table(payload: Mapping[str, Any]) -> str:
                 str(_field(row, "status", default="")),
                 "" if priority is None else f"P{priority}",
                 str(_field(row, "assignee", default=None) or "-"),
+                _DUPLICATE_LABELS.get(_field(row, "duplicate_direction", default=None), "-"),
                 ",".join(_field(row, "guards", default=[]) or []) or "-",
             )
         )
-        titles.append(" ".join(str(_field(row, "title", default="")).split()))
+        title = " ".join(str(_field(row, "title", default="")).split())
+        if reason := _field(row, "close_reason", default=None):
+            title += f"  [closed: {_clip(' '.join(str(reason).split()), 80)}]"
+        titles.append(title)
     widths = [max(len(line[column]) for line in table) for column in range(len(header))]
     lines = [f"# {READ_ONLY_NOTICE} {ADVISORY_NOTICE}"]
     baselines = [

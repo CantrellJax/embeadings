@@ -144,6 +144,14 @@ widen the margin to admit more mutual pairs.
 Each neighbor also carries `text_claims`: lineage claims either record's text makes about the other
 (see `mentions`), as IDs and a claim kind only.
 
+A closed neighbor carries the tracker's `close_reason` (null for any other status). Every neighbor
+carries `duplicate_direction`: `neighbor_dup_of_seed` when a `duplicates` or `supersedes` link from
+the neighbor to the seed (what `bd duplicate` and `bd supersede` record), or a duplicate-of,
+superseded-by, or folded-into claim, says the neighbor is the copy, so the seed is the live canonical
+record and must not be closed in its favour; `seed_dup_of_neighbor` for the reverse; null when nothing
+says either or the evidence points both ways. A typed link outranks text. The table format shows it
+as `neighbor-is-copy` or `seed-is-copy` and appends `[closed: <reason>]` to a closed neighbor's title.
+
 Several seeds (positional IDs, `--ids-file`, or both; duplicates are dropped in first-seen order) share
 one tracker load, model load, and vector index. One seed emits the `neighbors` report; several emit a
 `neighbors-batch` report whose `results` hold one `issue` and `neighbors` pair per seed.

@@ -48,7 +48,9 @@
       "structural_context": "same parent demo-epic",
       "text_claims": [],
       "assignee": null,
-      "guards": []
+      "guards": [],
+      "close_reason": "Duplicate of demo-1",
+      "duplicate_direction": "neighbor_dup_of_seed"
     }
   ],
   "score_baseline": {

@@ -39,7 +39,7 @@ from .incremental import (
 )
 from .linear import LinearAdapter
 from .match import candidate_texts, load_candidates, match_candidates
-from .mentions import extract_claims, resolved_elsewhere
+from .mentions import duplicate_direction, extract_claims, resolved_elsewhere
 from .mentions import kind_counts as claim_kind_counts
 from .models import IssueRecord, WorkspaceSnapshot, canonical_text, semantic_field_texts
 from .orphans import (
@@ -127,6 +127,11 @@ JSON fields per neighbor (full list: embead schema neighbors-batch):
   rank             position among the seed's neighbors before filters
   reverse_rank     where the seed ranks among this neighbor's own neighbors
   structural_context, text_claims, guards
+  close_reason     the tracker's close reason, for a closed neighbor (else null)
+  duplicate_direction
+                   neighbor_dup_of_seed (the seed is the live canonical record),
+                   seed_dup_of_neighbor, or null; from a duplicates/supersedes link,
+                   else a duplicate/superseded/folded-into claim in either record
 Several seeds add merged_neighbors: one row per neighbor with its best score and seed.
 
 example:
@@ -1170,6 +1175,16 @@ def _parent_of(issue: IssueRecord) -> str | None:
     return head if dot and tail.isdigit() else None
 
 
+def _closure_fields(seed: IssueRecord, related: IssueRecord, claims: Any) -> dict[str, Any]:
+    """The tracker's close reason for a closed neighbor, and which record is the copy."""
+
+    closed = related.status.casefold() in CLOSED_STATUSES
+    return {
+        "close_reason": (related.close_reason.strip() or None) if closed else None,
+        "duplicate_direction": duplicate_direction(seed, related, claims),
+    }
+
+
 def _neighbor_evidence(
     args: argparse.Namespace,
     seed: IssueRecord,
@@ -1218,6 +1233,7 @@ def _neighbor_evidence(
                 **_issue_summary(related),
                 "assignee": related.assignee or None,
                 "updated_at": related.updated_at or None,
+                **_closure_fields(seed, related, claims),
                 "guards": guard_flags(
                     related,
                     labels=args.guard_label or DEFAULT_GUARD_LABELS,

@@ -1819,3 +1819,55 @@ def test_neighbors_batch_cli_output_matches_the_schema(monkeypatch, tmp_path, ca
     )
     payload["snapshot"]["tracker_version"] = "1.0.5"  # the fake adapter leaves it blank
     Draft202012Validator(schema).validate(payload)
+
+
+CLOSURE_ISSUES = (
+    IssueRecord(
+        id="demo-1",
+        title="Persist authentication tokens",
+        description="Keep users signed in across browser restarts",
+        status="open",
+    ),
+    IssueRecord(
+        id="demo-2",
+        title="Persist authentication tokens again",
+        description="Keep users signed in across browser restarts",
+        status="closed",
+        close_reason="Duplicate of demo-1",
+    ),
+    IssueRecord(
+        id="demo-3",
+        title="Persist authentication tokens in storage",
+        description="Keep users signed in across browser restarts",
+        status="open",
+        close_reason="stale text on a reopened record",
+    ),
+)
+
+
+def test_closed_neighbors_carry_close_reason_and_duplicate_direction(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    class ClosureAdapter:
+        def load(self):
+            return WorkspaceSnapshot("workspace-test", "1.0.5", "/tmp/demo/.beads"), CLOSURE_ISSUES
+
+    _configure(monkeypatch, tmp_path)
+    monkeypatch.setattr(cli, "BeadsAdapter", ClosureAdapter)
+
+    assert cli.main(["neighbors", "demo-1", "--include-closed", "--json"]) == 0
+    neighbors = {row["id"]: row for row in json.loads(capsys.readouterr().out)["neighbors"]}
+    assert neighbors["demo-2"]["close_reason"] == "Duplicate of demo-1"
+    assert neighbors["demo-2"]["duplicate_direction"] == "neighbor_dup_of_seed"
+    # Only a closed neighbor reports its close reason.
+    assert neighbors["demo-3"]["close_reason"] is None
+    assert neighbors["demo-3"]["duplicate_direction"] is None
+
+    assert cli.main(["neighbors", "demo-2", "--include-closed", "--json"]) == 0
+    neighbors = {row["id"]: row for row in json.loads(capsys.readouterr().out)["neighbors"]}
+    assert neighbors["demo-1"]["duplicate_direction"] == "seed_dup_of_neighbor"
+
+    assert cli.main(["neighbors", "demo-1", "--include-closed", "--format", "table"]) == 0
+    rows = {line.split()[3]: line for line in capsys.readouterr().out.splitlines()[3:]}
+    assert "neighbor-is-copy" in rows["demo-2"]
+    assert "[closed: Duplicate of demo-1]" in rows["demo-2"]

@@ -69,7 +69,9 @@
           "reverse_rank": 2,
           "text_claims": [],
           "assignee": null,
-          "guards": []
+          "guards": [],
+          "close_reason": "Duplicate of demo-1",
+          "duplicate_direction": "neighbor_dup_of_seed"
         }
       ],
       "score_baseline": {
@@ -120,7 +122,9 @@
             }
           ],
           "assignee": null,
-          "guards": []
+          "guards": [],
+          "close_reason": null,
+          "duplicate_direction": "neighbor_dup_of_seed"
         }
       ],
       "score_baseline": {
@@ -152,6 +156,8 @@
       "best_similarity": 0.91,
       "best_seed": "demo-1",
       "best_rank": 1,
+      "close_reason": "Duplicate of demo-1",
+      "duplicate_direction": "neighbor_dup_of_seed",
       "seeds": [
         "demo-1"
       ],
@@ -171,6 +177,8 @@
       "best_similarity": 0.68,
       "best_seed": "demo-3",
       "best_rank": 1,
+      "close_reason": null,
+      "duplicate_direction": "neighbor_dup_of_seed",
       "seeds": [
         "demo-3"
       ],

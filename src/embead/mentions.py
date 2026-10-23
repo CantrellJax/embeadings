@@ -227,3 +227,54 @@ def claims_between(claims: Iterable[TextClaim], left_id: str, right_id: str) -> 
 def kind_counts(claims: Iterable[TextClaim]) -> dict[str, int]:
     counts = Counter(claim.kind for claim in claims)
     return {kind: counts[kind] for kind in CLAIM_KINDS if counts[kind]}
+
+
+# Typed links Beads writes when one record is closed in favour of another: ``bd duplicate A --of
+# B`` and ``bd supersede A --with B`` both store a link from A (the closed copy) to B (canonical).
+DUPLICATE_LINK_TYPES = frozenset({"duplicates", "duplicate-of", "supersedes", "superseded-by"})
+# Claims by which the claimant says it is the copy; and by which it says the other one is.
+_COPY_KINDS = frozenset({"duplicate-of", "superseded-by", "absorbed-by"})
+_CANONICAL_KINDS = frozenset({"supersedes", "absorbs"})
+NEIGHBOR_DUP_OF_SEED = "neighbor_dup_of_seed"
+SEED_DUP_OF_NEIGHBOR = "seed_dup_of_neighbor"
+
+
+def _duplicate_link(source: Any, target_id: str) -> bool:
+    return any(
+        getattr(link, "target_id", None) == target_id
+        and str(getattr(link, "relationship_type", "")).casefold() in DUPLICATE_LINK_TYPES
+        for link in getattr(source, "dependency_links", ()) or ()
+    )
+
+
+def duplicate_direction(seed: Any, neighbor: Any, claims: Iterable[TextClaim]) -> str | None:
+    """Which record of the pair is the copy, by typed link first and then by text claims.
+
+    ``neighbor_dup_of_seed`` means the seed is the live canonical record, so closing it would
+    lose the work; ``seed_dup_of_neighbor`` is the reverse.  ``None`` when nothing says either,
+    or when the evidence points both ways.
+    """
+
+    seed_id, neighbor_id = str(seed.id), str(neighbor.id)
+    linked = {
+        direction
+        for direction, present in (
+            (NEIGHBOR_DUP_OF_SEED, _duplicate_link(neighbor, seed_id)),
+            (SEED_DUP_OF_NEIGHBOR, _duplicate_link(seed, neighbor_id)),
+        )
+        if present
+    }
+    if len(linked) == 1:
+        return linked.pop()
+    if linked:
+        return None
+    said: set[str] = set()
+    for claim in claims_between(claims, seed_id, neighbor_id):
+        if claim.kind in _COPY_KINDS:
+            copy = claim.issue_id
+        elif claim.kind in _CANONICAL_KINDS:
+            copy = claim.related_issue_id
+        else:
+            continue
+        said.add(NEIGHBOR_DUP_OF_SEED if copy == neighbor_id else SEED_DUP_OF_NEIGHBOR)
+    return said.pop() if len(said) == 1 else None
