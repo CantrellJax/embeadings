@@ -144,6 +144,18 @@ widen the margin to admit more mutual pairs.
 Each neighbor also carries `text_claims`: lineage claims either record's text makes about the other
 (see `mentions`), as IDs and a claim kind only.
 
+Every neighbor carries `last_human_touch`: the newest comment or dated note entry that does not start
+with a bulk-agent prefix, else the record's `created_at`. Bulk passes ("NIGHT TRIAGE:", "URGENCY
+REGRADE", "OWNERSHIP SWEEP:") bump `updated_at` on hundreds of records, so `updated_at` is never used.
+A note entry is a line (indented or bulleted lines continue it) whose first line carries a date or
+timestamp in its first 80 characters; dates before the record was created or after its last update
+are references, not touches. A leading date before the prefix (`2026-10-21 NIGHT TRIAGE: ...`) still
+marks an agent entry. `--agent-note-prefix PREFIX` (repeatable, case-insensitive) replaces the
+prefix list; the default comes from `triage.agent_note_prefixes` in the config file (`$EMBEAD_CONFIG`,
+else `config.toml` in the platform user config directory for `embeadings`), else the three above.
+Comments are not in the Beads listing: `--fetch-comments` reads them with one `bd --readonly comments
+ID --json` call per reported record that has any, eight at a time.
+
 A closed neighbor carries the tracker's `close_reason` (null for any other status). Every neighbor
 carries `duplicate_direction`: `neighbor_dup_of_seed` when a `duplicates` or `supersedes` link from
 the neighbor to the seed (what `bd duplicate` and `bd supersede` record), or a duplicate-of,

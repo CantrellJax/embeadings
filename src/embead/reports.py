@@ -232,6 +232,7 @@ def merge_neighbor_results(results: Iterable[Mapping[str, Any]]) -> list[dict[st
                     "labels": list(_field(neighbor, "labels", default=[]) or []),
                     "assignee": _field(neighbor, "assignee", default=None),
                     "updated_at": _field(neighbor, "updated_at", default=None),
+                    "last_human_touch": _field(neighbor, "last_human_touch", default=None),
                     "guards": list(_field(neighbor, "guards", default=[]) or []),
                     "close_reason": _field(neighbor, "close_reason", default=None),
                     "best_similarity": score,

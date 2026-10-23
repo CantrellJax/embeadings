@@ -9,7 +9,9 @@ import os
 import sys
 import time
 import uuid
-from dataclasses import asdict
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -26,6 +28,7 @@ from .analysis import (
 from .artifacts import atomic_text, private_directory
 from .beads import BeadsAdapter
 from .cache import VectorCache
+from .config import agent_note_prefixes
 from .doctor import diagnose
 from .explain import explain_candidate
 from .guards import DEFAULT_GUARD_KEYWORDS, DEFAULT_GUARD_LABELS, guard_flags, score_baseline
@@ -96,6 +99,7 @@ from .surfaces import (
     compile_branch_patterns,
     parse_worktree_mappings,
 )
+from .touch import last_human_touch
 from .trackers import TrackerAdapter, TrackerError
 
 ACTIVE_STATUSES = {"open", "in_progress", "blocked", "deferred"}
@@ -127,6 +131,8 @@ JSON fields per neighbor (full list: embead schema neighbors-batch):
   rank             position among the seed's neighbors before filters
   reverse_rank     where the seed ranks among this neighbor's own neighbors
   structural_context, text_claims, guards
+  last_human_touch newest comment or dated note entry not written by a bulk agent pass
+                   (--agent-note-prefix), else created_at; updated_at is never used
   close_reason     the tracker's close reason, for a closed neighbor (else null)
   duplicate_direction
                    neighbor_dup_of_seed (the seed is the live canonical record),
@@ -248,6 +254,7 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include temporary Beads runtime records (excluded by default)",
     )
+    _human_touch_arguments(neighbors)
     neighbors.add_argument("--json", action="store_true", dest="as_json")
     neighbors.add_argument(
         "--format",
@@ -696,6 +703,27 @@ def _incremental_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _human_touch_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--agent-note-prefix",
+        action="append",
+        metavar="PREFIX",
+        help=(
+            "Note or comment prefix that marks a bulk agent pass, ignored by last_human_touch "
+            "(repeatable; replaces the config file's triage.agent_note_prefixes, default: "
+            "'NIGHT TRIAGE:', 'URGENCY REGRADE', 'OWNERSHIP SWEEP:')"
+        ),
+    )
+    parser.add_argument(
+        "--fetch-comments",
+        action="store_true",
+        help=(
+            "Also read comments (one read-only 'bd comments' call per reported record that has "
+            "any) so last_human_touch sees them; slower on a remote Beads server"
+        ),
+    )
+
+
 def _ephemeral_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--include-ephemeral",
@@ -784,6 +812,40 @@ def _load_source(args: argparse.Namespace) -> tuple[WorkspaceSnapshot, tuple[Iss
     else:
         adapter = BeadsAdapter()
     return adapter.load()
+
+
+def _with_comments(
+    args: argparse.Namespace, issues: Iterable[IssueRecord]
+) -> dict[str, IssueRecord]:
+    """Re-read comments for ``issues`` when asked; records without comments are skipped."""
+
+    wanted = {
+        issue.id: issue
+        for issue in issues
+        if not issue.comments and (issue.comment_count is None or issue.comment_count > 0)
+    }
+    if not getattr(args, "fetch_comments", False) or args.source != "beads" or not wanted:
+        return {}
+    adapter = BeadsAdapter()
+    ordered = sorted(wanted)
+    # Each read is a separate bd process; a few at once keeps a remote server from serializing.
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        fetched = list(pool.map(adapter.comments, ordered))
+    return {
+        identifier: replace(wanted[identifier], comments=comments)
+        for identifier, comments in zip(ordered, fetched, strict=True)
+    }
+
+
+def _human_touches(
+    args: argparse.Namespace, issues: Iterable[IssueRecord]
+) -> dict[str, tuple[str | None, str]]:
+    """``last_human_touch`` (timestamp, source) for each issue, reading comments if asked."""
+
+    records = {issue.id: issue for issue in issues}
+    records.update(_with_comments(args, records.values()))
+    prefixes = agent_note_prefixes(getattr(args, "agent_note_prefix", None))
+    return {identifier: last_human_touch(issue, prefixes) for identifier, issue in records.items()}
 
 
 def _divergence_exit(args: argparse.Namespace, snapshot: Any) -> int:
@@ -1306,6 +1368,12 @@ def _neighbors(args: argparse.Namespace) -> int:
             settled,
         )
         results.append((_issue_summary(by_id[seed]), evidence, diagnostics))
+    touches = _human_touches(
+        args, (by_id[row["id"]] for _seed, evidence, _diagnostics in results for row in evidence)
+    )
+    for _seed, evidence, _diagnostics in results:
+        for row in evidence:
+            row["last_human_touch"] = touches[row["id"]][0]
     filters = {
         "include_closed": bool(args.include_closed),
         "structural_link": "none-recorded" if args.orphans_only else "any",
@@ -1315,6 +1383,8 @@ def _neighbors(args: argparse.Namespace) -> int:
         "respect_soft_links": bool(args.respect_soft_links),
         "guard_labels": list(args.guard_label or DEFAULT_GUARD_LABELS),
         "guard_keywords": list(args.guard_keyword or DEFAULT_GUARD_KEYWORDS),
+        "agent_note_prefixes": list(agent_note_prefixes(args.agent_note_prefix)),
+        "fetch_comments": bool(args.fetch_comments),
     }
     if len(results) == 1:
         payload = build_neighbors_payload(

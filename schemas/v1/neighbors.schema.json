@@ -175,6 +175,10 @@
               "items": { "type": "string" },
               "description": "Triage flags: label:<owner label>, in-progress-assigned, keyword:<word>. Needs a human before any fold or close."
             },
+            "last_human_touch": {
+              "type": ["string", "null"],
+              "description": "Newest comment or dated note entry not written by a bulk agent pass, else created_at (RFC 3339 UTC). Never updated_at."
+            },
             "close_reason": {
               "type": ["string", "null"],
               "description": "The tracker's recorded close reason when the neighbor is closed; null otherwise."

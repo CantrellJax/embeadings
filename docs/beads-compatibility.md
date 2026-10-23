@@ -12,6 +12,16 @@ bd --readonly context --json
 bd --readonly list --all --limit 0 --json
 ```
 
+With `--fetch-comments` (`neighbors`, `packets`) it also runs, once per reported record whose listing
+shows comments:
+
+```text
+bd --readonly comments ISSUE_ID --json
+```
+
+The ID must be a plain issue ID; `add` and any argument starting with `-` are refused before `bd` runs.
+`created_at`, `comment_count`, and an inline `comments` array are read from the listing when present.
+
 The installed `bd` must:
 
 - report a semantic version at least `1.0.5`;
@@ -37,7 +47,9 @@ relationship. Self-dependencies and malformed targets still fail closed.
 ## Close dispositions
 
 The optional Beads `close_reason` is retained as lifecycle metadata and participates in metadata-only
-incremental fingerprints. It is not embedding input and its text is never copied into reports.
+incremental fingerprints. It is not embedding input. Its text appears in a report only where a
+reviewer needs the tracker's own words about a closed record: `match` resolution evidence, a closed
+neighbor's `close_reason`, and `packets`; sweeps, triage, mentions, and checkpoints never carry it.
 Completed-work echo ranking recognizes only three bounded, pair-local contradictions: work
 explicitly rehomed or moved to the exact paired active ID and marked not completed/not done in the
 same clause or an immediately following short sentence; a record marked `duplicate of` the exact

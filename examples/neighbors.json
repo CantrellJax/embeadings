@@ -49,6 +49,7 @@
       "text_claims": [],
       "assignee": null,
       "guards": [],
+      "last_human_touch": "2026-07-01T00:00:00Z",
       "close_reason": "Duplicate of demo-1",
       "duplicate_direction": "neighbor_dup_of_seed"
     }
