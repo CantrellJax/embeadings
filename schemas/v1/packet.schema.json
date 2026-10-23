@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/CantrellJax/embeadings/main/schemas/v1/packet.schema.json",
+  "title": "emBEADings triage packet (one JSON Lines record per seed), schema version 1",
+  "description": "Written by embead packets. Empty optional fields are omitted. Read-only advisory evidence: verify before any tracker change.",
+  "type": "object",
+  "required": ["schema_version", "report_type", "id", "title", "status", "neighbors", "inflight_neighbors", "claims", "flags"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "report_type": { "const": "packet" },
+    "id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string" },
+    "priority": { "type": ["integer", "null"] },
+    "status": { "type": "string", "minLength": 1 },
+    "type": { "type": "string", "description": "Tracker issue type." },
+    "created": { "type": "string" },
+    "updated": { "type": "string", "description": "Tracker updated_at; bulk agent passes move it too." },
+    "last_human_touch": { "type": "string", "description": "Newest comment or dated note entry not written by a bulk agent pass, else created (RFC 3339 UTC)." },
+    "last_human_touch_source": { "enum": ["comment", "note", "created", "unknown"] },
+    "assignee": { "type": "string" },
+    "labels": { "type": "array", "items": { "type": "string" } },
+    "parent": { "type": "string" },
+    "parent_status": { "type": "string", "description": "The parent's status, or missing." },
+    "counts": {
+      "type": "object",
+      "description": "Typed links out and in (parent-child excluded), and children total and live.",
+      "properties": {
+        "dependencies": { "type": "integer", "minimum": 1 },
+        "dependents": { "type": "integer", "minimum": 1 },
+        "children": { "type": "integer", "minimum": 1 },
+        "live_children": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "comment_count": { "type": "integer", "minimum": 1 },
+    "description": { "type": "string", "description": "Whitespace collapsed, cut to --text-limit." },
+    "notes": { "type": "string" },
+    "acceptance": { "type": "string" },
+    "close_reason": { "type": "string", "description": "Only for a closed seed (--include-closed)." },
+    "score_baseline": {
+      "type": "object",
+      "description": "The seed's similarity percentiles against every compared record; neighbors must beat p90.",
+      "properties": { "p50": { "type": "number" }, "p90": { "type": "number" } }
+    },
+    "neighbors": { "type": "array", "items": { "$ref": "#/$defs/neighbor" } },
+    "inflight_neighbors": { "type": "array", "items": { "$ref": "#/$defs/inflight" } },
+    "superseded": {
+      "type": "object",
+      "description": "With --since or --changes-file: merged changes that name the seed, and the three that rank it best.",
+      "properties": {
+        "named": { "type": "array", "items": { "$ref": "#/$defs/change" } },
+        "similar": { "type": "array", "maxItems": 3, "items": { "$ref": "#/$defs/change" } }
+      },
+      "additionalProperties": false
+    },
+    "claims": {
+      "type": "array",
+      "description": "Lineage claims in text by or about the seed (see mentions).",
+      "items": {
+        "type": "object",
+        "required": ["issue_id", "kind", "related_issue_id"],
+        "properties": {
+          "issue_id": { "type": "string" },
+          "kind": { "enum": ["duplicate-of", "superseded-by", "absorbed-by", "fixed-by", "supersedes", "absorbs", "continued-in", "mention"] },
+          "related_issue_id": { "type": "string" },
+          "other_status": { "type": "string" },
+          "typed_link": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "flags": {
+      "type": "array",
+      "items": { "enum": ["parent-closed", "parent-missing", "parent-deferred", "done-parent"] },
+      "description": "parent-closed/missing: dangling; parent-deferred: active work under parked work; done-parent: every child closed."
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "neighbor": {
+      "type": "object",
+      "required": ["id", "title", "status", "similarity", "rank", "reverse_rank"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "status": { "type": "string" },
+        "priority": { "type": ["integer", "null"] },
+        "similarity": { "type": "number", "minimum": -1, "maximum": 1 },
+        "rank": { "type": "integer", "minimum": 1 },
+        "reverse_rank": { "type": "integer", "minimum": 1 },
+        "structural_context": { "type": "string" },
+        "assignee": { "type": "string" },
+        "last_human_touch": { "type": "string" },
+        "guards": { "type": "array", "items": { "type": "string" } },
+        "close_reason": { "type": "string" },
+        "duplicate_direction": { "enum": ["neighbor_dup_of_seed", "seed_dup_of_neighbor"] },
+        "text_claims": { "type": "array", "items": { "type": "string" }, "description": "'<id> <kind> <id>' between seed and neighbor." }
+      },
+      "additionalProperties": true
+    },
+    "inflight": {
+      "type": "object",
+      "required": ["id", "title", "status", "similarity", "rank", "reverse_rank"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "status": { "type": "string" },
+        "holder": { "type": "string", "description": "The in-flight record's assignee." },
+        "similarity": { "type": "number", "minimum": -1, "maximum": 1 },
+        "rank": { "type": "integer", "minimum": 1, "description": "Where it ranks among the seed's neighbors." },
+        "reverse_rank": { "type": "integer", "minimum": 1, "description": "Where the seed ranks among its neighbors." },
+        "last_human_touch": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "change": {
+      "type": "object",
+      "required": ["change_id"],
+      "properties": {
+        "change_id": { "type": "string" },
+        "title": { "type": "string" },
+        "merged_at": { "type": ["string", "null"] },
+        "similarity": { "type": "number" },
+        "rank_in_change": { "type": "integer", "minimum": 1 },
+        "facet": { "type": "string" },
+        "shared_identifiers": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    }
+  }
+}

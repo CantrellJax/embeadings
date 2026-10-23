@@ -272,3 +272,44 @@ def test_superseded_cli_output_matches_the_schema(monkeypatch, tmp_path, capsys)
     payload = json.loads(capsys.readouterr().out)
     payload["snapshot"]["tracker_version"] = "1.0.5"  # the fake adapter leaves it blank
     Draft202012Validator(schema).validate(payload)
+
+
+def test_change_leads_give_each_seed_named_changes_and_its_best_similar_ones() -> None:
+    from embead.superseded import change_leads
+
+    provider = HashingProvider(dimension=64)
+    issues = [
+        IssueRecord(id="proj-a", title="Export the roster as CSV", status="open"),
+        IssueRecord(id="proj-b", title="Export the schedule as CSV", status="open"),
+        IssueRecord(id="proj-c", title="Dark mode for settings", status="open"),
+    ]
+    vectors = dict(
+        zip(
+            [issue.id for issue in issues],
+            provider.encode([issue.title for issue in issues]),
+            strict=True,
+        )
+    )
+    changes = [
+        Change("#1", "Export the roster as CSV"),
+        Change("#2", "Export the schedule as CSV"),
+        Change("#3", "Dark mode for settings (proj-c)"),
+    ]
+    facet_vectors = [provider.encode([text for _f, text in change.facets()]) for change in changes]
+
+    leads = change_leads(
+        changes,
+        facet_vectors,
+        issues,
+        vectors,
+        IssueIdResolver(issue.id for issue in issues),
+        ["proj-a", "proj-c"],
+        limit=1,
+        depth=2,
+    )
+
+    assert [change["change_id"] for change in leads["proj-c"]["named"]] == ["#3"]
+    # A named record leaves the similarity ranking, as in superseded.
+    assert leads["proj-c"]["similar"] == []
+    assert [row["change_id"] for row in leads["proj-a"]["similar"]] == ["#1"]
+    assert leads["proj-a"]["similar"][0]["rank_in_change"] == 1

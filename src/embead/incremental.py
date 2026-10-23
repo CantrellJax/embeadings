@@ -42,6 +42,10 @@ def record_fingerprint(issue: IssueRecord) -> str:
     """Hash review-relevant state without placing issue text in the checkpoint."""
 
     values = asdict(issue)
+    # Creation time and comments are not review state; leaving them out keeps every
+    # checkpoint written before IssueRecord carried them comparable.
+    for name in ("created_at", "comment_count", "comments"):
+        values.pop(name)
     # Preserve legacy/Linear fingerprints when a Beads-only optional field is
     # absent while still observing every transition to, from, or between reasons.
     if not issue.close_reason:

@@ -9,7 +9,9 @@ import os
 import sys
 import time
 import uuid
-from dataclasses import asdict
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -26,6 +28,7 @@ from .analysis import (
 from .artifacts import atomic_text, private_directory
 from .beads import BeadsAdapter
 from .cache import VectorCache
+from .config import agent_note_prefixes
 from .doctor import diagnose
 from .explain import explain_candidate
 from .guards import DEFAULT_GUARD_KEYWORDS, DEFAULT_GUARD_LABELS, guard_flags, score_baseline
@@ -39,16 +42,19 @@ from .incremental import (
 )
 from .linear import LinearAdapter
 from .match import candidate_texts, load_candidates, match_candidates
-from .mentions import extract_claims, resolved_elsewhere
+from .mentions import duplicate_direction, extract_claims, resolved_elsewhere
 from .mentions import kind_counts as claim_kind_counts
 from .models import IssueRecord, WorkspaceSnapshot, canonical_text, semantic_field_texts
 from .orphans import (
     find_dangling_parents,
+    find_deferred_parent_children,
+    find_done_parents,
     find_parentless,
     group_parentless,
     is_live,
 )
 from .orphans import parent_status_counts as orphan_parent_status_counts
+from .packets import PacketOptions, build_packets, compact, fill_touches, packet_record_ids
 from .provider import HashingProvider, Model2VecProvider, provider_readiness
 from .ranking import (
     NO_STRUCTURAL_LINK,
@@ -84,6 +90,7 @@ from .reports import (
 )
 from .schema_doc import field_lines, load_schema, report_types
 from .superseded import (
+    change_leads,
     changes_from_file,
     changes_from_git,
     earliest_merge,
@@ -96,6 +103,7 @@ from .surfaces import (
     compile_branch_patterns,
     parse_worktree_mappings,
 )
+from .touch import last_human_touch
 from .trackers import TrackerAdapter, TrackerError
 
 ACTIVE_STATUSES = {"open", "in_progress", "blocked", "deferred"}
@@ -127,10 +135,35 @@ JSON fields per neighbor (full list: embead schema neighbors-batch):
   rank             position among the seed's neighbors before filters
   reverse_rank     where the seed ranks among this neighbor's own neighbors
   structural_context, text_claims, guards
+  last_human_touch newest comment or dated note entry not written by a bulk agent pass
+                   (--agent-note-prefix), else created_at; updated_at is never used
+  close_reason     the tracker's close reason, for a closed neighbor (else null)
+  duplicate_direction
+                   neighbor_dup_of_seed (the seed is the live canonical record),
+                   seed_dup_of_neighbor, or null; from a duplicates/supersedes link,
+                   else a duplicate/superseded/folded-into claim in either record
 Several seeds add merged_neighbors: one row per neighbor with its best score and seed.
 
 example:
   embead neighbors --ids-file seeds.txt --exclude-siblings --respect-soft-links --format table
+"""
+
+PACKETS_EPILOG = """\
+Each line of the output is one packet (full list: embead schema packet):
+  id, title, priority, status, type, created, updated, assignee, labels
+  last_human_touch, last_human_touch_source   comment | note | created
+  parent, parent_status, counts (dependencies, dependents, children, live_children)
+  description, notes, acceptance               cut to --text-limit
+  neighbors           above the seed's p90; closed ones carry close_reason and
+                      duplicate_direction (neighbor_dup_of_seed: the seed is canonical)
+  inflight_neighbors  --inflight-status work ranking the seed top 3, or ranked top 3
+                      by it, above p90, with its holder
+  superseded          with --since: changes that name it, and the 3 that rank it best
+  claims, flags       text lineage claims; parent-closed|missing|deferred, done-parent
+Empty optional fields are left out.
+
+example:
+  embead packets --ids-file backlog.txt --since 2026-10-01 --output packets.jsonl
 """
 
 
@@ -243,6 +276,7 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include temporary Beads runtime records (excluded by default)",
     )
+    _human_touch_arguments(neighbors)
     neighbors.add_argument("--json", action="store_true", dest="as_json")
     neighbors.add_argument(
         "--format",
@@ -362,6 +396,89 @@ def _parser() -> argparse.ArgumentParser:
         help="Atomically write this single report (JSON with --json; Markdown otherwise)",
     )
 
+    packets = subparsers.add_parser(
+        "packets",
+        help="Write one compact triage packet per seed (JSON Lines), one tracker and model load",
+        description=(
+            "For each seed: its own fields and last human touch; neighbors above the seed's p90 "
+            "score baseline (closed ones with close reason and duplicate direction); in-progress "
+            "work that ranks it in its top 3 or that it ranks in its top 3; merged changes since "
+            "--since that name or resemble it; lineage claims in text; and parent flags."
+        ),
+        epilog=PACKETS_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    packets.add_argument(
+        "issue_ids", nargs="*", metavar="ISSUE_ID", help="Seeds, in addition to --ids-file"
+    )
+    packets.add_argument(
+        "--ids-file",
+        type=Path,
+        metavar="FILE",
+        help="Read seed IDs from FILE, one per line ('#' starts a comment)",
+    )
+    packets.add_argument(
+        "--include-closed",
+        action="store_true",
+        help="Compare against closed records too and write packets for closed seeds",
+    )
+    packets.add_argument(
+        "--limit",
+        type=int,
+        default=5,
+        metavar="N",
+        help="Neighbors per seed, all above the seed's p90 baseline (default: 5)",
+    )
+    packets.add_argument(
+        "--inflight-status",
+        action="append",
+        metavar="STATUS",
+        help="Status that counts as in flight (repeatable; default: in_progress)",
+    )
+    packets.add_argument(
+        "--since",
+        metavar="DATE|TIMESTAMP|COMMIT",
+        help="Add superseded leads: merged changes since this point that name or resemble a seed",
+    )
+    packets.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        metavar="DIR",
+        help="Git repository read for --since (default: the current directory)",
+    )
+    packets.add_argument("--ref", default="HEAD", help="Ref the merges landed on (default: HEAD)")
+    packets.add_argument(
+        "--changes-file",
+        type=Path,
+        metavar="FILE.jsonl",
+        help="Read merged changes from JSONL instead of git (as superseded --changes-file)",
+    )
+    packets.add_argument(
+        "--text-limit",
+        type=int,
+        default=400,
+        metavar="CHARS",
+        help="Cut description, notes, acceptance, and close reasons to CHARS (default: 400)",
+    )
+    packets.add_argument(
+        "--guard-label",
+        action="append",
+        metavar="LABEL",
+        help=f"Owner label to flag (repeatable; default: {', '.join(DEFAULT_GUARD_LABELS)})",
+    )
+    packets.add_argument(
+        "--guard-keyword", action="append", metavar="WORD", help="Title word to flag (repeatable)"
+    )
+    _human_touch_arguments(packets)
+    _ephemeral_argument(packets)
+    packets.add_argument(
+        "--output",
+        type=Path,
+        metavar="FILE",
+        help="Atomically write the packets to FILE (JSON Lines) instead of stdout",
+    )
+
     schema = subparsers.add_parser(
         "schema",
         help="Print a JSON report's fields, one line each (no tracker or model needed)",
@@ -384,6 +501,19 @@ def _parser() -> argparse.ArgumentParser:
         "--include-parentless",
         action="store_true",
         help="Also list live issues with no parent, grouped by issue type, in a separate section",
+    )
+    orphans.add_argument(
+        "--done-parents",
+        action="store_true",
+        help=(
+            "Also list open, blocked, or deferred parents whose children are all closed "
+            "(epics only with --include-epics)"
+        ),
+    )
+    orphans.add_argument(
+        "--include-epics",
+        action="store_true",
+        help="Let --done-parents list epics too (excluded by default)",
     )
     _ephemeral_argument(orphans)
     orphans.add_argument("--json", action="store_true", dest="as_json")
@@ -691,6 +821,27 @@ def _incremental_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _human_touch_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--agent-note-prefix",
+        action="append",
+        metavar="PREFIX",
+        help=(
+            "Note or comment prefix that marks a bulk agent pass, ignored by last_human_touch "
+            "(repeatable; replaces the config file's triage.agent_note_prefixes, default: "
+            "'NIGHT TRIAGE:', 'URGENCY REGRADE', 'OWNERSHIP SWEEP:')"
+        ),
+    )
+    parser.add_argument(
+        "--fetch-comments",
+        action="store_true",
+        help=(
+            "Also read comments (one read-only 'bd comments' call per reported record that has "
+            "any) so last_human_touch sees them; slower on a remote Beads server"
+        ),
+    )
+
+
 def _ephemeral_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--include-ephemeral",
@@ -779,6 +930,40 @@ def _load_source(args: argparse.Namespace) -> tuple[WorkspaceSnapshot, tuple[Iss
     else:
         adapter = BeadsAdapter()
     return adapter.load()
+
+
+def _with_comments(
+    args: argparse.Namespace, issues: Iterable[IssueRecord]
+) -> dict[str, IssueRecord]:
+    """Re-read comments for ``issues`` when asked; records without comments are skipped."""
+
+    wanted = {
+        issue.id: issue
+        for issue in issues
+        if not issue.comments and (issue.comment_count is None or issue.comment_count > 0)
+    }
+    if not getattr(args, "fetch_comments", False) or args.source != "beads" or not wanted:
+        return {}
+    adapter = BeadsAdapter()
+    ordered = sorted(wanted)
+    # Each read is a separate bd process; a few at once keeps a remote server from serializing.
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        fetched = list(pool.map(adapter.comments, ordered))
+    return {
+        identifier: replace(wanted[identifier], comments=comments)
+        for identifier, comments in zip(ordered, fetched, strict=True)
+    }
+
+
+def _human_touches(
+    args: argparse.Namespace, issues: Iterable[IssueRecord]
+) -> dict[str, tuple[str | None, str]]:
+    """``last_human_touch`` (timestamp, source) for each issue, reading comments if asked."""
+
+    records = {issue.id: issue for issue in issues}
+    records.update(_with_comments(args, records.values()))
+    prefixes = agent_note_prefixes(getattr(args, "agent_note_prefix", None))
+    return {identifier: last_human_touch(issue, prefixes) for identifier, issue in records.items()}
 
 
 def _divergence_exit(args: argparse.Namespace, snapshot: Any) -> int:
@@ -1051,6 +1236,7 @@ def _capabilities(args: argparse.Namespace) -> int:
             "orphans",
             "match",
             "superseded",
+            "packet",
         ],
         "capabilities": list(PRODUCER_CAPABILITIES),
         "required_capabilities": ["read-only-review"],
@@ -1149,7 +1335,7 @@ def _json_text(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
-def _neighbor_seed_ids(args: argparse.Namespace) -> list[str]:
+def _neighbor_seed_ids(args: argparse.Namespace, *, command: str = "neighbors") -> list[str]:
     seeds = list(args.issue_ids)
     if args.ids_file:
         for line in args.ids_file.read_text(encoding="utf-8").splitlines():
@@ -1157,7 +1343,7 @@ def _neighbor_seed_ids(args: argparse.Namespace) -> list[str]:
                 seeds.append(identifier)
     seeds = list(dict.fromkeys(seeds))
     if not seeds:
-        raise ValueError("neighbors needs at least one ISSUE_ID or --ids-file")
+        raise ValueError(f"{command} needs at least one ISSUE_ID or --ids-file")
     return seeds
 
 
@@ -1168,6 +1354,16 @@ def _parent_of(issue: IssueRecord) -> str | None:
         return issue.parent_id
     head, dot, tail = issue.id.rpartition(".")
     return head if dot and tail.isdigit() else None
+
+
+def _closure_fields(seed: IssueRecord, related: IssueRecord, claims: Any) -> dict[str, Any]:
+    """The tracker's close reason for a closed neighbor, and which record is the copy."""
+
+    closed = related.status.casefold() in CLOSED_STATUSES
+    return {
+        "close_reason": (related.close_reason.strip() or None) if closed else None,
+        "duplicate_direction": duplicate_direction(seed, related, claims),
+    }
 
 
 def _neighbor_evidence(
@@ -1218,6 +1414,7 @@ def _neighbor_evidence(
                 **_issue_summary(related),
                 "assignee": related.assignee or None,
                 "updated_at": related.updated_at or None,
+                **_closure_fields(seed, related, claims),
                 "guards": guard_flags(
                     related,
                     labels=args.guard_label or DEFAULT_GUARD_LABELS,
@@ -1290,6 +1487,12 @@ def _neighbors(args: argparse.Namespace) -> int:
             settled,
         )
         results.append((_issue_summary(by_id[seed]), evidence, diagnostics))
+    touches = _human_touches(
+        args, (by_id[row["id"]] for _seed, evidence, _diagnostics in results for row in evidence)
+    )
+    for _seed, evidence, _diagnostics in results:
+        for row in evidence:
+            row["last_human_touch"] = touches[row["id"]][0]
     filters = {
         "include_closed": bool(args.include_closed),
         "structural_link": "none-recorded" if args.orphans_only else "any",
@@ -1299,6 +1502,8 @@ def _neighbors(args: argparse.Namespace) -> int:
         "respect_soft_links": bool(args.respect_soft_links),
         "guard_labels": list(args.guard_label or DEFAULT_GUARD_LABELS),
         "guard_keywords": list(args.guard_keyword or DEFAULT_GUARD_KEYWORDS),
+        "agent_note_prefixes": list(agent_note_prefixes(args.agent_note_prefix)),
+        "fetch_comments": bool(args.fetch_comments),
     }
     if len(results) == 1:
         payload = build_neighbors_payload(
@@ -1470,6 +1675,89 @@ def _superseded(args: argparse.Namespace) -> int:
     return _divergence_exit(args, snapshot)
 
 
+def _packets(args: argparse.Namespace) -> int:
+    seeds = _neighbor_seed_ids(args, command="packets")
+    if args.limit < 0 or args.text_limit < 0:
+        raise ValueError("--limit and --text-limit cannot be negative")
+    changes = None
+    if args.changes_file:
+        changes = changes_from_file(args.changes_file)
+    elif args.since:
+        changes = changes_from_git(args.repo, args.since, ref=args.ref)
+    snapshot, issues = _load_source(args)
+    if not args.include_ephemeral:
+        issues = tuple(issue for issue in issues if not issue.ephemeral)
+    by_id = {issue.id: issue for issue in issues}
+    missing = [seed for seed in seeds if seed not in by_id]
+    if missing:
+        raise ValueError(f"issue not found: {', '.join(missing)}")
+    skipped = [
+        seed
+        for seed in seeds
+        if not args.include_closed and by_id[seed].status.casefold() in CLOSED_STATUSES
+    ]
+    seeds = [seed for seed in seeds if seed not in skipped]
+    compared = tuple(
+        issue
+        for issue in issues
+        if args.include_closed or issue.status.casefold() not in CLOSED_STATUSES
+    )
+    provider = _provider(args.provider)
+    cache_path, _ = _workspace_paths(snapshot.workspace_id)
+    vectors, _cache_stats = _load_vectors(compared, provider, VectorCache(cache_path))
+    index = SimilarityIndex(vectors)
+    resolver = IssueIdResolver(by_id)
+    leads = None
+    if changes is not None:
+        # Change text is encoded in memory only, with the model already loaded for the records.
+        facet_texts = [[text for _label, text in change.facets()] for change in changes]
+        flat = provider.encode([text for texts in facet_texts for text in texts]) if changes else []
+        facet_vectors, offset = [], 0
+        for texts in facet_texts:
+            facet_vectors.append(flat[offset : offset + len(texts)])
+            offset += len(texts)
+        live = tuple(issue for issue in compared if issue.status.casefold() not in CLOSED_STATUSES)
+        leads = change_leads(changes, facet_vectors, live, vectors, resolver, seeds)
+    options = PacketOptions(
+        limit=args.limit,
+        text_limit=args.text_limit,
+        inflight_statuses=frozenset(
+            status.casefold() for status in (args.inflight_status or ["in_progress"])
+        ),
+        guard_labels=tuple(args.guard_label or DEFAULT_GUARD_LABELS),
+        guard_keywords=tuple(args.guard_keyword or DEFAULT_GUARD_KEYWORDS),
+    )
+    packets = build_packets(
+        [by_id[seed] for seed in seeds],
+        issues,
+        [issue.id for issue in compared],
+        index,
+        extract_claims(issues, issues, resolver=resolver),
+        options=options,
+        leads=leads,
+    )
+    touches = _human_touches(args, (by_id[identifier] for identifier in packet_record_ids(packets)))
+    fill_touches(packets, touches.__getitem__)
+    rendered = "".join(
+        json.dumps(compact(packet), ensure_ascii=False, separators=(",", ":")) + "\n"
+        for packet in packets
+    )
+    if args.output:
+        _atomic_text(args.output, rendered)
+        sys.stdout.write(
+            f"Wrote {len(packets)} packets to {args.output}"
+            + (f"; skipped {len(skipped)} closed seeds (--include-closed)" if skipped else "")
+            + ". Read-only: no tracker changes.\n"
+        )
+    else:
+        sys.stdout.write(rendered)
+        if skipped:
+            print(
+                f"embead: skipped {len(skipped)} closed seeds (--include-closed)", file=sys.stderr
+            )
+    return _divergence_exit(args, snapshot)
+
+
 def _schema(args: argparse.Namespace) -> int:
     if not args.report_type:
         sys.stdout.write("\n".join(report_types()) + "\n")
@@ -1487,20 +1775,32 @@ def _orphans(args: argparse.Namespace) -> int:
     reportable = [issue for issue in issues if args.include_ephemeral or not issue.ephemeral]
     dangling = find_dangling_parents(issues, reportable=reportable)
     parentless = find_parentless(reportable) if args.include_parentless else ()
+    deferred = find_deferred_parent_children(issues, reportable=reportable)
+    done = (
+        find_done_parents(issues, include_epics=args.include_epics, reportable=reportable)
+        if args.done_parents
+        else ()
+    )
     payload = build_orphans_payload(
         dangling,
         snapshot=asdict(snapshot),
         filters={
             "include_parentless": bool(args.include_parentless),
             "include_ephemeral": bool(args.include_ephemeral),
+            "done_parents": bool(args.done_parents),
+            "include_epics": bool(args.include_epics),
         },
         summary={
             "live_issues_scanned": sum(is_live(issue) for issue in reportable),
             "dangling_parent_count": len(dangling),
             "parent_status_counts": orphan_parent_status_counts(dangling),
             "parentless_count": len(parentless),
+            "deferred_parent_count": len(deferred),
+            "done_parent_count": len(done),
         },
         parentless=group_parentless(parentless),
+        deferred_parent=deferred,
+        done_parents=done,
     )
     rendered = _json_text(payload) if args.as_json else render_orphans_markdown(payload)
     if args.output:
@@ -2203,6 +2503,8 @@ def main(argv: list[str] | None = None) -> int:
             return _schema(args)
         if args.command == "superseded":
             return _superseded(args)
+        if args.command == "packets":
+            return _packets(args)
         if args.command == "match":
             return _match(args)
         return _sweep(args)

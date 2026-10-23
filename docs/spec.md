@@ -100,7 +100,8 @@ embead sweep [--size 9]
 embead batch [--size 9]
 embead collisions [--worktree-map ISSUE_ID=PATH] [--branch-pattern REGEX] [--min-confidence LEVEL]
 embead mentions [--include-linked] [--include-closed] [--include-mentions] [--limit 50]
-embead orphans [--include-parentless] [--include-ephemeral]
+embead orphans [--include-parentless] [--done-parents [--include-epics]] [--include-ephemeral]
+embead packets [ISSUE_ID ...] --ids-file FILE [--include-closed] [--since DATE|COMMIT] [--inflight-status STATUS] [--output FILE]
 embead readiness [--offline]
 embead doctor [--offline]
 embead capabilities [--json]
@@ -143,6 +144,26 @@ widen the margin to admit more mutual pairs.
 
 Each neighbor also carries `text_claims`: lineage claims either record's text makes about the other
 (see `mentions`), as IDs and a claim kind only.
+
+Every neighbor carries `last_human_touch`: the newest comment or dated note entry that does not start
+with a bulk-agent prefix, else the record's `created_at`. Bulk passes ("NIGHT TRIAGE:", "URGENCY
+REGRADE", "OWNERSHIP SWEEP:") bump `updated_at` on hundreds of records, so `updated_at` is never used.
+A note entry is a line (indented or bulleted lines continue it) whose first line carries a date or
+timestamp in its first 80 characters; dates before the record was created or after its last update
+are references, not touches. A leading date before the prefix (`2026-10-21 NIGHT TRIAGE: ...`) still
+marks an agent entry. `--agent-note-prefix PREFIX` (repeatable, case-insensitive) replaces the
+prefix list; the default comes from `triage.agent_note_prefixes` in the config file (`$EMBEAD_CONFIG`,
+else `config.toml` in the platform user config directory for `embeadings`), else the three above.
+Comments are not in the Beads listing: `--fetch-comments` reads them with one `bd --readonly comments
+ID --json` call per reported record that has any, eight at a time.
+
+A closed neighbor carries the tracker's `close_reason` (null for any other status). Every neighbor
+carries `duplicate_direction`: `neighbor_dup_of_seed` when a `duplicates` or `supersedes` link from
+the neighbor to the seed (what `bd duplicate` and `bd supersede` record), or a duplicate-of,
+superseded-by, or folded-into claim, says the neighbor is the copy, so the seed is the live canonical
+record and must not be closed in its favour; `seed_dup_of_neighbor` for the reverse; null when nothing
+says either or the evidence points both ways. A typed link outranks text. The table format shows it
+as `neighbor-is-copy` or `seed-is-copy` and appends `[closed: <reason>]` to a closed neighbor's title.
 
 Several seeds (positional IDs, `--ids-file`, or both; duplicates are dropped in first-seen order) share
 one tracker load, model load, and vector index. One seed emits the `neighbors` report; several emit a
@@ -278,7 +299,7 @@ mentions whose spelling carries a dash or dot. The report does not load an embed
 ### `orphans`
 
 ```bash
-embead orphans [--include-parentless] [--include-ephemeral]
+embead orphans [--include-parentless] [--done-parents [--include-epics]] [--include-ephemeral]
 ```
 
 A structural hygiene report that needs no embedding model. It lists live issues (every status
@@ -296,6 +317,56 @@ no parent at all under a separate `parentless` field, grouped by `issue_type`, s
 are normal and are never mixed into the dangling-parent list. Ephemeral records are not reported
 unless `--include-ephemeral` is set, but they still count as parents. The report only reads; it
 reparents, reopens, and closes nothing.
+
+Open, in-progress, and blocked children of a deferred parent are listed separately under
+`deferred_parent` (`parent_status` is `deferred`): they are not dangling, since a deferred parent is
+live, but active work under parked work deserves a look. Deferred children of a deferred parent are
+consistent and are not listed.
+
+`--done-parents` adds `done_parents`: open, blocked, or deferred parents with at least one child whose
+children are all closed, with `child_count`. They may be finished work nobody closed. An in-progress
+parent is held by someone and is never listed. Epics are left out unless `--include-epics`, because an
+epic is often kept open until a later phase is filed. A live ephemeral child still keeps its parent
+off the list.
+
+### `packets`
+
+```bash
+embead packets [ISSUE_ID ...] [--ids-file FILE] [--include-closed] [--limit 5]
+               [--inflight-status in_progress] [--since DATE|COMMIT [--repo DIR] [--ref REF]
+               | --changes-file FILE.jsonl] [--text-limit 400] [--agent-note-prefix PREFIX]
+               [--fetch-comments] [--guard-label LABEL] [--include-ephemeral] [--output FILE]
+```
+
+Writes one compact JSON object per seed (JSON Lines, schema `packet`), the whole triage context a
+reviewer needs for one record, from one tracker load and one model load. With `--output` the file is
+written atomically and stdout gets a one-line summary; without it the packets go to stdout.
+
+Each packet carries the seed's `id`, `title`, `priority`, `status`, `type`, `created`, `updated`,
+`last_human_touch` and `last_human_touch_source` (see `neighbors`), `assignee`, `labels`, `parent`
+and `parent_status` (the parent's own status, or `missing`), `counts` (typed links out and in, with
+parent-child excluded, and children total and live), `comment_count`, and `description`, `notes`,
+and `acceptance` with whitespace collapsed and cut to `--text-limit` characters. Then:
+
+- `neighbors`: up to `--limit` nearest records that score above the seed's p90 baseline
+  (`score_baseline` holds p50 and p90), with `rank`, `reverse_rank`, `structural_context`,
+  `assignee`, `last_human_touch`, `guards`, and, for closed neighbors, `close_reason` and
+  `duplicate_direction`. Seeds are not excluded: two backlog records that duplicate each other are
+  the point of a triage.
+- `inflight_neighbors`: records with an `--inflight-status` (repeatable; default `in_progress`) that
+  rank the seed in their top 3, or that the seed ranks in its top 3, and score above the seed's p90,
+  with their `holder` (assignee).
+- `superseded` (with `--since` or `--changes-file`): `named` lists every merged change that names
+  the seed; `similar` the three changes that rank the seed best, by the `superseded` ranking among
+  live records, keeping only changes that rank it within their top 10.
+- `claims`: lineage claims by or about the seed in any record's text (see `mentions`), with the other
+  record's status and whether a typed link backs the claim.
+- `flags`: `parent-closed` or `parent-missing` (dangling), `parent-deferred` (active work under a
+  deferred parent), and `done-parent` (every child closed; epics included).
+
+Records are compared against live records only unless `--include-closed`, which also writes packets
+for closed seeds; without it closed seeds are skipped and counted in the summary. Empty optional
+fields are omitted. The command reads the tracker (and git for `--since`) and changes nothing.
 
 ### `match`
 

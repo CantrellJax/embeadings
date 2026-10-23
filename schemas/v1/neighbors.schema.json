@@ -174,6 +174,18 @@
               "type": "array",
               "items": { "type": "string" },
               "description": "Triage flags: label:<owner label>, in-progress-assigned, keyword:<word>. Needs a human before any fold or close."
+            },
+            "last_human_touch": {
+              "type": ["string", "null"],
+              "description": "Newest comment or dated note entry not written by a bulk agent pass, else created_at (RFC 3339 UTC). Never updated_at."
+            },
+            "close_reason": {
+              "type": ["string", "null"],
+              "description": "The tracker's recorded close reason when the neighbor is closed; null otherwise."
+            },
+            "duplicate_direction": {
+              "enum": ["neighbor_dup_of_seed", "seed_dup_of_neighbor", null],
+              "description": "Which record is the copy, from a duplicates/supersedes link or a duplicate, superseded, or folded-into claim. neighbor_dup_of_seed means the seed is the live canonical record."
             }
           }
         }

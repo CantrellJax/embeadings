@@ -146,3 +146,74 @@ def test_cli_markdown_and_output_file(monkeypatch, tmp_path, capsys) -> None:
     assert "- Dangling parent: 3 (closed 2, missing 1)" in rendered
     assert "| demo-1 | closed | demo-10 | task | open | P2 | Synthetic demo-10 |" in rendered
     assert "### epic (4)" in rendered
+
+
+DONE_ISSUES = (
+    _issue("done-1", "open", issue_type="feature"),  # all children closed: listed
+    _issue("done-1.1", "closed", parent="done-1"),
+    _issue("done-1.2", "closed", parent="done-1"),
+    _issue("done-2", "blocked", issue_type="epic"),  # epic: only with --include-epics
+    _issue("done-2.1", "closed", parent="done-2"),
+    _issue("done-3", "deferred"),  # one live child: not done
+    _issue("done-3.1", "closed", parent="done-3"),
+    _issue("done-3.2", "open", parent="done-3"),  # active child of a deferred parent
+    _issue("done-3.3", "deferred", parent="done-3"),  # parked under parked: not flagged
+    _issue("done-4", "in_progress"),  # someone holds it: never listed
+    _issue("done-4.1", "closed", parent="done-4"),
+    _issue("done-5", "open"),  # no children: never listed
+    _issue("done-6", "closed"),  # closed parent: never listed
+    _issue("done-6.1", "closed", parent="done-6"),
+    _issue("done-7", "open"),  # a live ephemeral child still counts as live work
+    _issue("done-7.1", "closed", parent="done-7"),
+    _issue("done-7.2", "open", parent="done-7", ephemeral=True),
+)
+
+
+def test_done_parents_are_live_non_epic_parents_with_only_closed_children() -> None:
+    from embead.orphans import find_done_parents
+
+    rows = find_done_parents(DONE_ISSUES)
+    assert [(r.issue_id, r.child_count) for r in rows] == [("done-1", 2)]
+    with_epics = find_done_parents(DONE_ISSUES, include_epics=True)
+    assert [r.issue_id for r in with_epics] == ["done-1", "done-2"]
+
+
+def test_active_children_of_deferred_parents_are_separate_from_dangling() -> None:
+    from embead.orphans import find_deferred_parent_children
+
+    rows = find_deferred_parent_children(DONE_ISSUES)
+    assert [(r.parent_id, r.issue_id, r.parent_status) for r in rows] == [
+        ("done-3", "done-3.2", "deferred")
+    ]
+    assert "done-3.2" not in {r.issue_id for r in find_dangling_parents(DONE_ISSUES)}
+
+
+def test_cli_done_parents_and_deferred_parent_sections(monkeypatch, capsys) -> None:
+    class DoneAdapter:
+        def load(self):
+            return WorkspaceSnapshot(
+                "workspace-test", "1.0.5", "/tmp/demo/.beads", tracker_version="1.0.5"
+            ), DONE_ISSUES
+
+    monkeypatch.setattr(cli, "BeadsAdapter", DoneAdapter)
+    monkeypatch.setattr(cli, "_provider", lambda _n: pytest.fail("orphans must not load a model"))
+
+    assert cli.main(["orphans", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["done_parents"] == []
+    assert [r["issue_id"] for r in payload["deferred_parent"]] == ["done-3.2"]
+    assert payload["summary"]["deferred_parent_count"] == 1
+
+    assert cli.main(["orphans", "--json", "--done-parents", "--include-epics"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert [r["issue_id"] for r in payload["done_parents"]] == ["done-1", "done-2"]
+    assert payload["summary"]["done_parent_count"] == 2
+    schema = json.loads((SCHEMAS / "orphans.schema.json").read_text(encoding="utf-8"))
+    Draft202012Validator(schema).validate(payload)
+
+    assert cli.main(["orphans", "--done-parents"]) == 0
+    rendered = capsys.readouterr().out
+    assert "## Active children of a deferred parent" in rendered
+    assert "| done-3 | done-3.2 | task | open | P2 | Synthetic done-3.2 |" in rendered
+    assert "## Live parents whose children are all closed" in rendered
+    assert "| done-1 | feature | open | P2 | 2 | Synthetic done-1 |" in rendered

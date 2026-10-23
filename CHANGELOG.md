@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.6.0 — 2026-10-23
+
+Field-report follow-ups from a 1,600-record backlog triage that hand-built a packet per record
+from `neighbors`, `superseded`, `orphans`, and `mentions`.
+
+- Add `embead packets --ids-file FILE [--include-closed] [--since DATE|COMMIT] [--inflight-status
+  STATUS] --output FILE`: one compact JSON Lines packet per seed, from one tracker and model load.
+  Each carries the seed's fields, `last_human_touch`, parent and parent status, link and child
+  counts, and description, notes, and acceptance cut to `--text-limit`; neighbors above the seed's
+  p90 baseline; in-flight records that rank the seed in their top 3 (or that it ranks) with their
+  holder; merged changes that name it and the three that rank it best; lineage claims; and parent
+  flags. New `packet` schema and example.
+- `neighbors`: a closed neighbor carries the tracker's `close_reason`, and every neighbor carries
+  `duplicate_direction` (`neighbor_dup_of_seed`, `seed_dup_of_neighbor`, or null) from a
+  `duplicates`/`supersedes` link or a duplicate, superseded, or folded-into claim, so a reviewer can
+  tell the canonical record from its copy. The table format shows both.
+- `last_human_touch` on neighbor rows and packets: the newest comment or dated note entry that does
+  not start with a bulk-agent prefix (`NIGHT TRIAGE:`, `URGENCY REGRADE`, `OWNERSHIP SWEEP:`), else
+  `created_at`; `updated_at` is never used. `--agent-note-prefix` (repeatable) or
+  `triage.agent_note_prefixes` in a new optional config file sets the prefixes. `--fetch-comments`
+  reads comments with a read-only `bd --readonly comments ID --json` per reported record that has any.
+- `orphans --done-parents` lists open, blocked, or deferred parents whose children are all closed
+  (epics with `--include-epics`). Open, in-progress, and blocked children of a deferred parent are
+  now listed apart under `deferred_parent`, never as dangling.
+
 ## 0.5.1 — 2026-10-08
 
 Discoverability; no behaviour changes.

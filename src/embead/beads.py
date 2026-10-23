@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, TypeAlias
 
-from .models import DependencyLink, IssueRecord, WorkspaceSnapshot
+from .models import DependencyLink, IssueComment, IssueRecord, WorkspaceSnapshot
 from .trackers import TrackerError
 
 
@@ -23,7 +23,10 @@ class BeadsError(TrackerError):
 
 
 Runner: TypeAlias = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
-_ALLOWED_COMMANDS = frozenset({"version", "context", "list"})
+_ALLOWED_COMMANDS = frozenset({"version", "context", "list", "comments"})
+# ``bd comments`` also has an ``add`` subcommand; only a plain issue ID may follow it here.
+_COMMENT_SUBCOMMANDS = frozenset({"add", "list", "help"})
+_ISSUE_ID_ARGUMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 MINIMUM_BEADS_VERSION = "1.0.5"
 BEADS_CAPABILITY_CONTRACT = (
     "bd --readonly version --json, bd --readonly context --json, and "
@@ -142,6 +145,18 @@ class BeadsAdapter:
         if len(ids) != len(set(ids)):
             raise BeadsError("bd list returned duplicate issue IDs")
         return records
+
+    def comments(self, issue_id: str) -> tuple[IssueComment, ...]:
+        """Read one issue's comments (``bd --readonly comments ID --json``); never adds one."""
+
+        if not _ISSUE_ID_ARGUMENT_RE.fullmatch(issue_id) or issue_id in _COMMENT_SUBCOMMANDS:
+            raise BeadsError(f"refusing to read comments for unsafe issue ID {issue_id!r}")
+        payload = self._run_json("comments", issue_id)
+        if payload is None:
+            return ()
+        if not isinstance(payload, list):
+            raise BeadsError("bd comments JSON must be an array")
+        return _parse_comments(payload)
 
     def load(self) -> tuple[WorkspaceSnapshot, tuple[IssueRecord, ...]]:
         """Return snapshot metadata and all issues from the live workspace."""
@@ -475,6 +490,36 @@ def _parse_dependencies(
     return tuple(sorted(set(dependencies))), ordered_links
 
 
+def _parse_comments(value: Any) -> tuple[IssueComment, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise BeadsError("issue comments must be an array")
+    comments = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise BeadsError("issue comment has an unsupported shape")
+        created_at = _first(item, "created_at", "createdAt")
+        text = _first(item, "text", "body")
+        author = _first(item, "author") or ""
+        if not isinstance(created_at, str) or not isinstance(text, str):
+            raise BeadsError("issue comment needs string created_at and text")
+        comments.append(
+            IssueComment(
+                created_at=created_at, text=text, author=author if isinstance(author, str) else ""
+            )
+        )
+    return tuple(comments)
+
+
+def _parse_count(value: Any, *, field_name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise BeadsError(f"issue {field_name} must be a non-negative integer")
+    return value
+
+
 def _parse_issue(raw: Any) -> IssueRecord:
     if not isinstance(raw, Mapping):
         raise BeadsError("each issue must be a JSON object")
@@ -508,4 +553,7 @@ def _parse_issue(raw: Any) -> IssueRecord:
         updated_at=_optional_string(raw, "updated_at", "updatedAt"),
         assignee=_optional_string(raw, "assignee").strip(),
         ephemeral=_parse_bool(raw.get("ephemeral"), field_name="ephemeral"),
+        created_at=_optional_string(raw, "created_at", "createdAt"),
+        comment_count=_parse_count(raw.get("comment_count"), field_name="comment_count"),
+        comments=_parse_comments(raw.get("comments")),
     )

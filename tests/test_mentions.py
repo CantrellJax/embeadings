@@ -159,3 +159,53 @@ def test_resolved_elsewhere_reads_folds_duplicates_and_pr_references() -> None:
         "proj-dddd4",
         "proj-gggg7",
     }
+
+
+def test_duplicate_direction_reads_typed_links_before_text() -> None:
+    from embead.mentions import duplicate_direction
+
+    seed = _issue("demo-seed1")
+    copy = IssueRecord(
+        id="demo-copy1",
+        title="copy",
+        status="closed",
+        dependency_links=(DependencyLink("demo-copy1", "demo-seed1", "duplicates"),),
+    )
+    replaced = IssueRecord(
+        id="demo-old11",
+        title="old",
+        status="closed",
+        dependency_links=(DependencyLink("demo-old11", "demo-seed1", "supersedes"),),
+    )
+    issues = (seed, copy, replaced)
+
+    def direction(left, right):
+        return duplicate_direction(left, right, extract_claims((left, right), issues))
+
+    assert direction(seed, copy) == "neighbor_dup_of_seed"
+    assert direction(copy, seed) == "seed_dup_of_neighbor"
+    assert direction(seed, replaced) == "neighbor_dup_of_seed"
+
+
+def test_duplicate_direction_reads_close_reasons_and_refuses_contradictions() -> None:
+    from embead.mentions import duplicate_direction
+
+    seed = _issue("demo-seed1")
+    copy = _issue("demo-copy1", status="closed", close_reason="Duplicate of seed1")
+    canonical = _issue("demo-canon", status="closed", close_reason="Done; supersedes seed1.")
+    torn = _issue(
+        "demo-torn1",
+        status="closed",
+        close_reason="Folded into demo-seed1",
+        notes="Supersedes demo-seed1",
+    )
+    unrelated = _issue("demo-other", status="closed", close_reason="Fixed by demo-seed1")
+    issues = (seed, copy, canonical, torn, unrelated)
+
+    def direction(neighbor):
+        return duplicate_direction(seed, neighbor, extract_claims((seed, neighbor), issues))
+
+    assert direction(copy) == "neighbor_dup_of_seed"
+    assert direction(canonical) == "seed_dup_of_neighbor"
+    assert direction(torn) is None
+    assert direction(unrelated) is None

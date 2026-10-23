@@ -105,6 +105,12 @@ class SimilarityIndex:
 
         return np.asarray([self._position(item) for item in identifiers], dtype=np.intp)
 
+    def scores_against(self, query_id: str, pool: np.ndarray) -> np.ndarray:
+        """Return ``query_id``'s scores against ``pool`` positions, excluding itself."""
+
+        query = self._position(query_id)
+        return self._scores[query, pool[pool != query]]
+
     def rank_of(self, query_id: str, target_id: str, pool: np.ndarray) -> int:
         """Return the 1-based rank of ``target_id`` among ``pool`` for ``query_id``.
 

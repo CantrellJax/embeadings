@@ -39,6 +39,15 @@ class RelationDiagnostics:
 
 
 @dataclass(frozen=True, slots=True)
+class IssueComment:
+    """One tracker comment: only its time and text are used (for ``last_human_touch``)."""
+
+    created_at: str
+    text: str
+    author: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class IssueRecord:
     """The tracker fields used by semantic and structural analysis."""
 
@@ -59,6 +68,10 @@ class IssueRecord:
     ephemeral: bool = False
     close_reason: str = ""
     assignee: str = ""
+    created_at: str = ""
+    # None when the tracker does not report a count; comments are only present when read.
+    comment_count: int | None = None
+    comments: tuple[IssueComment, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True, slots=True)

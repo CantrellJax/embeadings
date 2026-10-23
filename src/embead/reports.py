@@ -107,8 +107,10 @@ def _record(value: Any) -> dict[str, Any]:
     if not isinstance(record, dict):
         raise TypeError("issues and evidence must be mapping-like objects")
     # Lifecycle source text can inform bounded ranking decisions but is never
-    # report content, even when a caller passes a full IssueRecord directly.
-    record.pop("close_reason", None)
+    # report content when a caller passes a full IssueRecord directly; a report row
+    # built as a mapping may carry it on purpose (closed neighbors do).
+    if not isinstance(value, Mapping):
+        record.pop("close_reason", None)
     if "id" not in record:
         issue_id = _field(value, "issue_id")
         if issue_id is not None:
@@ -230,10 +232,13 @@ def merge_neighbor_results(results: Iterable[Mapping[str, Any]]) -> list[dict[st
                     "labels": list(_field(neighbor, "labels", default=[]) or []),
                     "assignee": _field(neighbor, "assignee", default=None),
                     "updated_at": _field(neighbor, "updated_at", default=None),
+                    "last_human_touch": _field(neighbor, "last_human_touch", default=None),
                     "guards": list(_field(neighbor, "guards", default=[]) or []),
+                    "close_reason": _field(neighbor, "close_reason", default=None),
                     "best_similarity": score,
                     "best_seed": seed_id,
                     "best_rank": _field(neighbor, "rank", default=None),
+                    "duplicate_direction": _field(neighbor, "duplicate_direction", default=None),
                     "seeds": [],
                 }
             elif score > row["best_similarity"]:
@@ -241,6 +246,7 @@ def merge_neighbor_results(results: Iterable[Mapping[str, Any]]) -> list[dict[st
                     best_similarity=score,
                     best_seed=seed_id,
                     best_rank=_field(neighbor, "rank", default=None),
+                    duplicate_direction=_field(neighbor, "duplicate_direction", default=None),
                 )
             row["seeds"].append(seed_id)
     rows = list(merged.values())
@@ -321,6 +327,8 @@ def build_orphans_payload(
     filters: Any | None = None,
     summary: Any | None = None,
     parentless: Iterable[Any] | None = None,
+    deferred_parent: Iterable[Any] | None = None,
+    done_parents: Iterable[Any] | None = None,
 ) -> dict[str, Any]:
     """Build a structural report of live issues whose parent is closed or missing."""
 
@@ -339,6 +347,8 @@ def build_orphans_payload(
         "summary": _jsonable(summary or {}),
         "dangling_parent": [_jsonable(row) for row in dangling],
         "parentless": [_jsonable(group) for group in parentless or ()],
+        "deferred_parent": [_jsonable(row) for row in deferred_parent or ()],
+        "done_parents": [_jsonable(row) for row in done_parents or ()],
     }
 
 
@@ -817,6 +827,13 @@ def _metadata_lines(payload: Mapping[str, Any]) -> list[str]:
     return lines
 
 
+def _neighbor_title(neighbor: Any) -> str:
+    title = str(_field(neighbor, "title", default="Untitled issue"))
+    if reason := _field(neighbor, "close_reason", default=None):
+        title += f" (closed: {_clip(' '.join(str(reason).split()), 120)})"
+    return title
+
+
 def render_neighbors_markdown(payload: Mapping[str, Any]) -> str:
     """Render a compact neighbors report; intentionally not a similarity matrix."""
 
@@ -862,8 +879,8 @@ def render_neighbors_markdown(payload: Mapping[str, Any]) -> str:
         lines.extend(
             [
                 "| Rank | Issue | Status | Title | Similarity | Reverse rank | "
-                "Structural context | Text claims |",
-                "|---:|---|---|---|---:|---:|---|---|",
+                "Structural context | Text claims | Duplicate |",
+                "|---:|---|---|---|---:|---:|---|---|---|",
             ]
         )
         for neighbor in neighbors:
@@ -885,11 +902,16 @@ def render_neighbors_markdown(payload: Mapping[str, Any]) -> str:
                         _escape(_field(neighbor, "rank", default="—")),
                         _escape(_field(neighbor, "id", "issue_id", default="unknown")),
                         _escape(_field(neighbor, "status", default="unknown")),
-                        _escape(_field(neighbor, "title", default="Untitled issue")),
+                        _escape(_neighbor_title(neighbor)),
                         score_text,
                         _escape(_field(neighbor, "reverse_rank", default=None) or "—"),
                         _escape(context),
                         _escape(claim_text or "—"),
+                        _escape(
+                            _DUPLICATE_LABELS.get(
+                                _field(neighbor, "duplicate_direction", default=None), "—"
+                            )
+                        ),
                     ]
                 )
                 + " |"
@@ -1196,6 +1218,16 @@ def _baseline_text(baseline: Any) -> str:
     )
 
 
+_DUPLICATE_LABELS = {
+    "neighbor_dup_of_seed": "neighbor-is-copy",
+    "seed_dup_of_neighbor": "seed-is-copy",
+}
+
+
+def _clip(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
 def render_neighbors_table(payload: Mapping[str, Any]) -> str:
     """One plain-text line per neighbor, deduplicated across seeds, for a terminal."""
 
@@ -1205,7 +1237,17 @@ def render_neighbors_table(payload: Mapping[str, Any]) -> str:
     else:
         rows = merge_neighbor_results([payload])
         results = [payload]
-    header = ("SCORE", "SEEDS", "BEST SEED", "NEIGHBOR", "STATUS", "PRI", "ASSIGNEE", "GUARDS")
+    header = (
+        "SCORE",
+        "SEEDS",
+        "BEST SEED",
+        "NEIGHBOR",
+        "STATUS",
+        "PRI",
+        "ASSIGNEE",
+        "DUPLICATE",
+        "GUARDS",
+    )
     table = [header]
     titles = []
     for row in rows:
@@ -1219,10 +1261,14 @@ def render_neighbors_table(payload: Mapping[str, Any]) -> str:
                 str(_field(row, "status", default="")),
                 "" if priority is None else f"P{priority}",
                 str(_field(row, "assignee", default=None) or "-"),
+                _DUPLICATE_LABELS.get(_field(row, "duplicate_direction", default=None), "-"),
                 ",".join(_field(row, "guards", default=[]) or []) or "-",
             )
         )
-        titles.append(" ".join(str(_field(row, "title", default="")).split()))
+        title = " ".join(str(_field(row, "title", default="")).split())
+        if reason := _field(row, "close_reason", default=None):
+            title += f"  [closed: {_clip(' '.join(str(reason).split()), 80)}]"
+        titles.append(title)
     widths = [max(len(line[column]) for line in table) for column in range(len(header))]
     lines = [f"# {READ_ONLY_NOTICE} {ADVISORY_NOTICE}"]
     baselines = [
@@ -1480,6 +1526,70 @@ def render_orphans_markdown(payload: Mapping[str, Any]) -> str:
                             _escape(_field(item, "status", default="unknown")),
                             _escape("" if priority is None else f"P{priority}"),
                             _escape(_field(item, "title", default="")),
+                        ]
+                    )
+                    + " |"
+                )
+            lines.append("")
+    deferred = payload.get("deferred_parent") or []
+    if deferred:
+        lines.extend(
+            [
+                "## Active children of a deferred parent",
+                "",
+                "Not dangling: a deferred parent is live. Listed because active work sits under "
+                "parked work.",
+                "",
+                "| Parent | Issue | Type | Status | Priority | Title |",
+                "|---|---|---|---|---|---|",
+            ]
+        )
+        for row in deferred:
+            priority = _field(row, "priority", default=None)
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _escape(_field(row, "parent_id", default="unknown")),
+                        _escape(_field(row, "issue_id", default="unknown")),
+                        _escape(_field(row, "issue_type", default="")),
+                        _escape(_field(row, "status", default="unknown")),
+                        _escape("" if priority is None else f"P{priority}"),
+                        _escape(_field(row, "title", default="")),
+                    ]
+                )
+                + " |"
+            )
+        lines.append("")
+    if _field(payload.get("filters") or {}, "done_parents", default=False):
+        done = payload.get("done_parents") or []
+        lines.extend(
+            [
+                "## Live parents whose children are all closed",
+                "",
+            ]
+        )
+        if not done:
+            lines.extend(["None.", ""])
+        else:
+            lines.extend(
+                [
+                    "| Parent | Type | Status | Priority | Closed children | Title |",
+                    "|---|---|---|---|---:|---|",
+                ]
+            )
+            for row in done:
+                priority = _field(row, "priority", default=None)
+                lines.append(
+                    "| "
+                    + " | ".join(
+                        [
+                            _escape(_field(row, "issue_id", default="unknown")),
+                            _escape(_field(row, "issue_type", default="")),
+                            _escape(_field(row, "status", default="unknown")),
+                            _escape("" if priority is None else f"P{priority}"),
+                            _escape(_field(row, "child_count", default=0)),
+                            _escape(_field(row, "title", default="")),
                         ]
                     )
                     + " |"
