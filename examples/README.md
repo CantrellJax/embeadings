@@ -14,6 +14,7 @@ or reviewing the privacy boundary; use the installed CLI for current command hel
 | [`orphans.json`](orphans.json) | Live issues whose parent is closed or missing, active children of deferred parents, and optional parentless and done-parent lists |
 | [`match.json`](match.json) | Nearest existing records for candidate text that is not yet a bead |
 | [`superseded.json`](superseded.json) | Live records that merged changes name or closely match |
+| [`packet.json`](packet.json) | One line of `embead packets` output: a compact triage packet for one seed |
 | [`sweep.json`](sweep.json) | Full synchronous analysis and batching report |
 | [`batch.json`](batch.json) | Compatibility alias for a synchronous sweep artifact |
 | [`capabilities.json`](capabilities.json) | Schema and feature negotiation handshake |

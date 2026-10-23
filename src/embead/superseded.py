@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path, PurePosixPath
@@ -336,6 +336,40 @@ def superseded_candidates(
             )
     if not ranked_pool:
         return _sorted_rows(hits)
+    for change, facet, scores, combined, shared_by_index in _scored_facets(
+        changes, facet_vectors, ranked_pool, vectors, identifier_weight
+    ):
+        order = _facet_order(combined)
+        for rank, index in enumerate(order[:per_change], start=1):
+            # How far the record leads the next one: standing out for one change is a
+            # stronger lead than being one of many records that all look alike.
+            lead = combined[index] - combined[order[rank]] if rank < len(order) else 0.0
+            record(
+                ranked_pool[index],
+                change,
+                {
+                    **change.evidence(),
+                    "basis": "similar",
+                    "facet": facet,
+                    "similarity": round(float(scores[index]), 6),
+                    "combined_score": round(float(combined[index]), 6),
+                    "rank_in_change": rank,
+                    "lead": round(float(lead), 6),
+                    "shared_identifiers": shared_by_index.get(index, [])[:8],
+                },
+            )
+    return _sorted_rows(hits)
+
+
+def _scored_facets(
+    changes: Sequence[Change],
+    facet_vectors: Sequence[Sequence[Sequence[float]]],
+    ranked_pool: Sequence[IssueRecord],
+    vectors: Mapping[str, Sequence[float]],
+    identifier_weight: float,
+) -> Iterator[tuple[Change, str | None, np.ndarray, np.ndarray, dict[int, list[str]]]]:
+    """Yield each change facet's raw and identifier-lifted scores over ``ranked_pool``."""
+
     matrix = np.asarray([vectors[issue.id] for issue in ranked_pool], dtype=np.float64)
     matrix = matrix / np.linalg.norm(matrix, axis=1)[:, np.newaxis]
     record_identifiers = {issue.id: _record_identifiers(issue) for issue in ranked_pool}
@@ -353,30 +387,89 @@ def superseded_candidates(
         for (facet, _text), vector in zip(change.facets(), change_facet_vectors, strict=True):
             query = np.asarray(vector, dtype=np.float64)
             scores = np.clip(matrix @ (query / np.linalg.norm(query)), -1.0, 1.0)
-            combined = scores + lift
-            order = sorted(
-                range(len(ranked_pool)),
-                key=lambda index: (-round(combined[index], 6), ranked_pool[index].id),
-            )
-            for rank, index in enumerate(order[:per_change], start=1):
-                # How far the record leads the next one: standing out for one change is a
-                # stronger lead than being one of many records that all look alike.
-                lead = combined[index] - combined[order[rank]] if rank < len(order) else 0.0
-                record(
-                    ranked_pool[index],
-                    change,
-                    {
-                        **change.evidence(),
-                        "basis": "similar",
-                        "facet": facet,
-                        "similarity": round(float(scores[index]), 6),
-                        "combined_score": round(float(combined[index]), 6),
-                        "rank_in_change": rank,
-                        "lead": round(float(lead), 6),
-                        "shared_identifiers": shared_by_index.get(index, [])[:8],
-                    },
-                )
-    return _sorted_rows(hits)
+            yield change, facet, scores, scores + lift, shared_by_index
+
+
+def _facet_order(combined: np.ndarray) -> list[int]:
+    """Positions by descending rounded score, then pool position (the pool is sorted by ID)."""
+
+    return [int(index) for index in np.lexsort((np.arange(len(combined)), -np.round(combined, 6)))]
+
+
+def change_leads(
+    changes: Sequence[Change],
+    facet_vectors: Sequence[Sequence[Sequence[float]]],
+    issues: Sequence[IssueRecord],
+    vectors: Mapping[str, Sequence[float]],
+    resolver: IssueIdResolver,
+    seed_ids: Iterable[str],
+    *,
+    limit: int = 3,
+    depth: int = 10,
+    identifier_weight: float = IDENTIFIER_WEIGHT,
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """Per seed: every change that names it, and its ``limit`` most likely similar changes.
+
+    The ranking is the one ``superseded`` uses (records any change names leave it), seen from the
+    seed's side: for each change, the seed's best facet rank among ``issues``.  Only changes that
+    rank the seed within ``depth`` are kept, best rank first, then combined score.
+    """
+
+    pool = sorted(issues, key=lambda issue: issue.id)
+    seeds = [seed for seed in dict.fromkeys(seed_ids) if seed in vectors]
+    leads: dict[str, dict[str, list[dict[str, Any]]]] = {
+        seed: {"named": [], "similar": []} for seed in seeds
+    }
+    if not pool or not changes:
+        return leads
+    pool_ids = {issue.id for issue in pool}
+    named_by = [named_records(change, resolver) & pool_ids for change in changes]
+    for change, named in zip(changes, named_by, strict=True):
+        for seed in sorted(named & leads.keys()):
+            leads[seed]["named"].append(change.evidence())
+    everything_named = set().union(*named_by)
+    ranked_pool = [issue for issue in pool if issue.id not in everything_named]
+    position = {issue.id: index for index, issue in enumerate(ranked_pool)}
+    tracked = [seed for seed in seeds if seed in position]
+    if not ranked_pool or not tracked:
+        return leads
+    best: dict[tuple[str, str], dict[str, Any]] = {}
+    for change, facet, scores, combined, shared_by_index in _scored_facets(
+        changes, facet_vectors, ranked_pool, vectors, identifier_weight
+    ):
+        ranks = np.empty(len(ranked_pool), dtype=np.intp)
+        ranks[_facet_order(combined)] = np.arange(1, len(ranked_pool) + 1)
+        for seed in tracked:
+            index = position[seed]
+            rank = int(ranks[index])
+            if rank > depth:
+                continue
+            candidate = {
+                **change.evidence(),
+                "facet": facet,
+                "similarity": round(float(scores[index]), 6),
+                "combined_score": round(float(combined[index]), 6),
+                "rank_in_change": rank,
+                "shared_identifiers": shared_by_index.get(index, [])[:8],
+            }
+            key = (seed, change.change_id)
+            if key not in best or (rank, -candidate["combined_score"]) < (
+                best[key]["rank_in_change"],
+                -best[key]["combined_score"],
+            ):
+                best[key] = candidate
+    for (seed, _change_id), evidence in best.items():
+        leads[seed]["similar"].append(evidence)
+    for entry in leads.values():
+        entry["similar"] = sorted(
+            entry["similar"],
+            key=lambda item: (
+                item["rank_in_change"],
+                -item["combined_score"],
+                str(item["change_id"]),
+            ),
+        )[:limit]
+    return leads
 
 
 def _sorted_rows(hits: Mapping[str, _Hit]) -> list[dict[str, Any]]:

@@ -69,6 +69,11 @@ embead superseded --since 2026-10-07
 
 # One deduplicated line per neighbor across many seeds, with owner and in-progress guards
 embead neighbors --ids-file sprint.txt --exclude-siblings --respect-soft-links --format table
+
+# One compact triage packet per backlog record (JSON Lines) for a human or LLM reviewer:
+# neighbors with duplicate direction, last human touch, in-flight lookalikes, merged changes,
+# lineage claims, and parent flags, from one tracker and model load
+embead packets --ids-file backlog.txt --since 2026-10-01 --output packets.jsonl
 ```
 
 Without `pipx` or `uv`, the standard library is enough:

@@ -118,6 +118,7 @@ def test_capabilities_is_corpus_free_and_machine_readable(monkeypatch, capsys) -
             "orphans",
             "match",
             "superseded",
+            "packet",
         ],
         "capabilities": [
             "additive-fields",

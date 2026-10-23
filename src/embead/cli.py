@@ -54,6 +54,7 @@ from .orphans import (
     is_live,
 )
 from .orphans import parent_status_counts as orphan_parent_status_counts
+from .packets import PacketOptions, build_packets, compact, fill_touches, packet_record_ids
 from .provider import HashingProvider, Model2VecProvider, provider_readiness
 from .ranking import (
     NO_STRUCTURAL_LINK,
@@ -89,6 +90,7 @@ from .reports import (
 )
 from .schema_doc import field_lines, load_schema, report_types
 from .superseded import (
+    change_leads,
     changes_from_file,
     changes_from_git,
     earliest_merge,
@@ -144,6 +146,24 @@ Several seeds add merged_neighbors: one row per neighbor with its best score and
 
 example:
   embead neighbors --ids-file seeds.txt --exclude-siblings --respect-soft-links --format table
+"""
+
+PACKETS_EPILOG = """\
+Each line of the output is one packet (full list: embead schema packet):
+  id, title, priority, status, type, created, updated, assignee, labels
+  last_human_touch, last_human_touch_source   comment | note | created
+  parent, parent_status, counts (dependencies, dependents, children, live_children)
+  description, notes, acceptance               cut to --text-limit
+  neighbors           above the seed's p90; closed ones carry close_reason and
+                      duplicate_direction (neighbor_dup_of_seed: the seed is canonical)
+  inflight_neighbors  --inflight-status work ranking the seed top 3, or ranked top 3
+                      by it, above p90, with its holder
+  superseded          with --since: changes that name it, and the 3 that rank it best
+  claims, flags       text lineage claims; parent-closed|missing|deferred, done-parent
+Empty optional fields are left out.
+
+example:
+  embead packets --ids-file backlog.txt --since 2026-10-01 --output packets.jsonl
 """
 
 
@@ -374,6 +394,89 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="FILE",
         help="Atomically write this single report (JSON with --json; Markdown otherwise)",
+    )
+
+    packets = subparsers.add_parser(
+        "packets",
+        help="Write one compact triage packet per seed (JSON Lines), one tracker and model load",
+        description=(
+            "For each seed: its own fields and last human touch; neighbors above the seed's p90 "
+            "score baseline (closed ones with close reason and duplicate direction); in-progress "
+            "work that ranks it in its top 3 or that it ranks in its top 3; merged changes since "
+            "--since that name or resemble it; lineage claims in text; and parent flags."
+        ),
+        epilog=PACKETS_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    packets.add_argument(
+        "issue_ids", nargs="*", metavar="ISSUE_ID", help="Seeds, in addition to --ids-file"
+    )
+    packets.add_argument(
+        "--ids-file",
+        type=Path,
+        metavar="FILE",
+        help="Read seed IDs from FILE, one per line ('#' starts a comment)",
+    )
+    packets.add_argument(
+        "--include-closed",
+        action="store_true",
+        help="Compare against closed records too and write packets for closed seeds",
+    )
+    packets.add_argument(
+        "--limit",
+        type=int,
+        default=5,
+        metavar="N",
+        help="Neighbors per seed, all above the seed's p90 baseline (default: 5)",
+    )
+    packets.add_argument(
+        "--inflight-status",
+        action="append",
+        metavar="STATUS",
+        help="Status that counts as in flight (repeatable; default: in_progress)",
+    )
+    packets.add_argument(
+        "--since",
+        metavar="DATE|TIMESTAMP|COMMIT",
+        help="Add superseded leads: merged changes since this point that name or resemble a seed",
+    )
+    packets.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        metavar="DIR",
+        help="Git repository read for --since (default: the current directory)",
+    )
+    packets.add_argument("--ref", default="HEAD", help="Ref the merges landed on (default: HEAD)")
+    packets.add_argument(
+        "--changes-file",
+        type=Path,
+        metavar="FILE.jsonl",
+        help="Read merged changes from JSONL instead of git (as superseded --changes-file)",
+    )
+    packets.add_argument(
+        "--text-limit",
+        type=int,
+        default=400,
+        metavar="CHARS",
+        help="Cut description, notes, acceptance, and close reasons to CHARS (default: 400)",
+    )
+    packets.add_argument(
+        "--guard-label",
+        action="append",
+        metavar="LABEL",
+        help=f"Owner label to flag (repeatable; default: {', '.join(DEFAULT_GUARD_LABELS)})",
+    )
+    packets.add_argument(
+        "--guard-keyword", action="append", metavar="WORD", help="Title word to flag (repeatable)"
+    )
+    _human_touch_arguments(packets)
+    _ephemeral_argument(packets)
+    packets.add_argument(
+        "--output",
+        type=Path,
+        metavar="FILE",
+        help="Atomically write the packets to FILE (JSON Lines) instead of stdout",
     )
 
     schema = subparsers.add_parser(
@@ -1133,6 +1236,7 @@ def _capabilities(args: argparse.Namespace) -> int:
             "orphans",
             "match",
             "superseded",
+            "packet",
         ],
         "capabilities": list(PRODUCER_CAPABILITIES),
         "required_capabilities": ["read-only-review"],
@@ -1231,7 +1335,7 @@ def _json_text(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
-def _neighbor_seed_ids(args: argparse.Namespace) -> list[str]:
+def _neighbor_seed_ids(args: argparse.Namespace, *, command: str = "neighbors") -> list[str]:
     seeds = list(args.issue_ids)
     if args.ids_file:
         for line in args.ids_file.read_text(encoding="utf-8").splitlines():
@@ -1239,7 +1343,7 @@ def _neighbor_seed_ids(args: argparse.Namespace) -> list[str]:
                 seeds.append(identifier)
     seeds = list(dict.fromkeys(seeds))
     if not seeds:
-        raise ValueError("neighbors needs at least one ISSUE_ID or --ids-file")
+        raise ValueError(f"{command} needs at least one ISSUE_ID or --ids-file")
     return seeds
 
 
@@ -1568,6 +1672,89 @@ def _superseded(args: argparse.Namespace) -> int:
     if args.output:
         _atomic_text(args.output, rendered)
     sys.stdout.write(rendered)
+    return _divergence_exit(args, snapshot)
+
+
+def _packets(args: argparse.Namespace) -> int:
+    seeds = _neighbor_seed_ids(args, command="packets")
+    if args.limit < 0 or args.text_limit < 0:
+        raise ValueError("--limit and --text-limit cannot be negative")
+    changes = None
+    if args.changes_file:
+        changes = changes_from_file(args.changes_file)
+    elif args.since:
+        changes = changes_from_git(args.repo, args.since, ref=args.ref)
+    snapshot, issues = _load_source(args)
+    if not args.include_ephemeral:
+        issues = tuple(issue for issue in issues if not issue.ephemeral)
+    by_id = {issue.id: issue for issue in issues}
+    missing = [seed for seed in seeds if seed not in by_id]
+    if missing:
+        raise ValueError(f"issue not found: {', '.join(missing)}")
+    skipped = [
+        seed
+        for seed in seeds
+        if not args.include_closed and by_id[seed].status.casefold() in CLOSED_STATUSES
+    ]
+    seeds = [seed for seed in seeds if seed not in skipped]
+    compared = tuple(
+        issue
+        for issue in issues
+        if args.include_closed or issue.status.casefold() not in CLOSED_STATUSES
+    )
+    provider = _provider(args.provider)
+    cache_path, _ = _workspace_paths(snapshot.workspace_id)
+    vectors, _cache_stats = _load_vectors(compared, provider, VectorCache(cache_path))
+    index = SimilarityIndex(vectors)
+    resolver = IssueIdResolver(by_id)
+    leads = None
+    if changes is not None:
+        # Change text is encoded in memory only, with the model already loaded for the records.
+        facet_texts = [[text for _label, text in change.facets()] for change in changes]
+        flat = provider.encode([text for texts in facet_texts for text in texts]) if changes else []
+        facet_vectors, offset = [], 0
+        for texts in facet_texts:
+            facet_vectors.append(flat[offset : offset + len(texts)])
+            offset += len(texts)
+        live = tuple(issue for issue in compared if issue.status.casefold() not in CLOSED_STATUSES)
+        leads = change_leads(changes, facet_vectors, live, vectors, resolver, seeds)
+    options = PacketOptions(
+        limit=args.limit,
+        text_limit=args.text_limit,
+        inflight_statuses=frozenset(
+            status.casefold() for status in (args.inflight_status or ["in_progress"])
+        ),
+        guard_labels=tuple(args.guard_label or DEFAULT_GUARD_LABELS),
+        guard_keywords=tuple(args.guard_keyword or DEFAULT_GUARD_KEYWORDS),
+    )
+    packets = build_packets(
+        [by_id[seed] for seed in seeds],
+        issues,
+        [issue.id for issue in compared],
+        index,
+        extract_claims(issues, issues, resolver=resolver),
+        options=options,
+        leads=leads,
+    )
+    touches = _human_touches(args, (by_id[identifier] for identifier in packet_record_ids(packets)))
+    fill_touches(packets, touches.__getitem__)
+    rendered = "".join(
+        json.dumps(compact(packet), ensure_ascii=False, separators=(",", ":")) + "\n"
+        for packet in packets
+    )
+    if args.output:
+        _atomic_text(args.output, rendered)
+        sys.stdout.write(
+            f"Wrote {len(packets)} packets to {args.output}"
+            + (f"; skipped {len(skipped)} closed seeds (--include-closed)" if skipped else "")
+            + ". Read-only: no tracker changes.\n"
+        )
+    else:
+        sys.stdout.write(rendered)
+        if skipped:
+            print(
+                f"embead: skipped {len(skipped)} closed seeds (--include-closed)", file=sys.stderr
+            )
     return _divergence_exit(args, snapshot)
 
 
@@ -2316,6 +2503,8 @@ def main(argv: list[str] | None = None) -> int:
             return _schema(args)
         if args.command == "superseded":
             return _superseded(args)
+        if args.command == "packets":
+            return _packets(args)
         if args.command == "match":
             return _match(args)
         return _sweep(args)

@@ -124,6 +124,7 @@ def _load(directory: Path, name: str) -> dict[str, Any]:
         "orphans",
         "match",
         "superseded",
+        "packet",
         "capabilities",
         "checkpoint",
     ],

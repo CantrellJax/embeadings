@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "report_type": "packet",
+  "id": "demo-1",
+  "title": "Persist authentication tokens",
+  "priority": 2,
+  "status": "open",
+  "type": "task",
+  "created": "2026-07-01T00:00:00Z",
+  "updated": "2026-10-20T03:00:00Z",
+  "last_human_touch": "2026-08-01T00:00:00Z",
+  "last_human_touch_source": "note",
+  "labels": ["auth"],
+  "parent": "demo-epic",
+  "parent_status": "closed",
+  "counts": {"dependencies": 1},
+  "description": "Keep users signed in across browser restarts.",
+  "notes": "2026-08-01 scoped with design NIGHT TRIAGE: P1 -> P2",
+  "acceptance": "Tokens survive a restart.",
+  "score_baseline": {"p50": 0.41, "p90": 0.62},
+  "neighbors": [
+    {
+      "id": "demo-2",
+      "title": "Persist authentication tokens (copy)",
+      "status": "closed",
+      "priority": 2,
+      "similarity": 0.91,
+      "rank": 1,
+      "reverse_rank": 1,
+      "last_human_touch": "2026-07-01T00:00:00Z",
+      "close_reason": "Duplicate of demo-1",
+      "duplicate_direction": "neighbor_dup_of_seed",
+      "text_claims": ["demo-2 duplicate-of demo-1"]
+    }
+  ],
+  "inflight_neighbors": [
+    {
+      "id": "demo-3",
+      "title": "Store tokens in secure storage",
+      "status": "in_progress",
+      "holder": "dev-a",
+      "similarity": 0.74,
+      "rank": 2,
+      "reverse_rank": 1,
+      "last_human_touch": "2026-10-19T16:00:00Z"
+    }
+  ],
+  "superseded": {
+    "similar": [
+      {
+        "change_id": "#8",
+        "title": "Persist authentication tokens",
+        "merged_at": "2026-10-07T22:15:00Z",
+        "similarity": 0.81,
+        "rank_in_change": 1
+      }
+    ]
+  },
+  "claims": [
+    {
+      "issue_id": "demo-2",
+      "kind": "duplicate-of",
+      "related_issue_id": "demo-1",
+      "other_status": "closed",
+      "typed_link": false
+    }
+  ],
+  "flags": ["parent-closed"]
+}

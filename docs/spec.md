@@ -101,6 +101,7 @@ embead batch [--size 9]
 embead collisions [--worktree-map ISSUE_ID=PATH] [--branch-pattern REGEX] [--min-confidence LEVEL]
 embead mentions [--include-linked] [--include-closed] [--include-mentions] [--limit 50]
 embead orphans [--include-parentless] [--done-parents [--include-epics]] [--include-ephemeral]
+embead packets [ISSUE_ID ...] --ids-file FILE [--include-closed] [--since DATE|COMMIT] [--inflight-status STATUS] [--output FILE]
 embead readiness [--offline]
 embead doctor [--offline]
 embead capabilities [--json]
@@ -327,6 +328,45 @@ children are all closed, with `child_count`. They may be finished work nobody cl
 parent is held by someone and is never listed. Epics are left out unless `--include-epics`, because an
 epic is often kept open until a later phase is filed. A live ephemeral child still keeps its parent
 off the list.
+
+### `packets`
+
+```bash
+embead packets [ISSUE_ID ...] [--ids-file FILE] [--include-closed] [--limit 5]
+               [--inflight-status in_progress] [--since DATE|COMMIT [--repo DIR] [--ref REF]
+               | --changes-file FILE.jsonl] [--text-limit 400] [--agent-note-prefix PREFIX]
+               [--fetch-comments] [--guard-label LABEL] [--include-ephemeral] [--output FILE]
+```
+
+Writes one compact JSON object per seed (JSON Lines, schema `packet`), the whole triage context a
+reviewer needs for one record, from one tracker load and one model load. With `--output` the file is
+written atomically and stdout gets a one-line summary; without it the packets go to stdout.
+
+Each packet carries the seed's `id`, `title`, `priority`, `status`, `type`, `created`, `updated`,
+`last_human_touch` and `last_human_touch_source` (see `neighbors`), `assignee`, `labels`, `parent`
+and `parent_status` (the parent's own status, or `missing`), `counts` (typed links out and in, with
+parent-child excluded, and children total and live), `comment_count`, and `description`, `notes`,
+and `acceptance` with whitespace collapsed and cut to `--text-limit` characters. Then:
+
+- `neighbors`: up to `--limit` nearest records that score above the seed's p90 baseline
+  (`score_baseline` holds p50 and p90), with `rank`, `reverse_rank`, `structural_context`,
+  `assignee`, `last_human_touch`, `guards`, and, for closed neighbors, `close_reason` and
+  `duplicate_direction`. Seeds are not excluded: two backlog records that duplicate each other are
+  the point of a triage.
+- `inflight_neighbors`: records with an `--inflight-status` (repeatable; default `in_progress`) that
+  rank the seed in their top 3, or that the seed ranks in its top 3, and score above the seed's p90,
+  with their `holder` (assignee).
+- `superseded` (with `--since` or `--changes-file`): `named` lists every merged change that names
+  the seed; `similar` the three changes that rank the seed best, by the `superseded` ranking among
+  live records, keeping only changes that rank it within their top 10.
+- `claims`: lineage claims by or about the seed in any record's text (see `mentions`), with the other
+  record's status and whether a typed link backs the claim.
+- `flags`: `parent-closed` or `parent-missing` (dangling), `parent-deferred` (active work under a
+  deferred parent), and `done-parent` (every child closed; epics included).
+
+Records are compared against live records only unless `--include-closed`, which also writes packets
+for closed seeds; without it closed seeds are skipped and counted in the summary. Empty optional
+fields are omitted. The command reads the tracker (and git for `--since`) and changes nothing.
 
 ### `match`
 

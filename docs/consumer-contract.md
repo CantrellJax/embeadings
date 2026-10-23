@@ -2,7 +2,7 @@
 
 emBEADings artifacts are read-only, advisory evidence. The JSON Schemas in
 [`schemas/v1`](../schemas/v1/) describe the stable machine-readable envelope for the `neighbors`,
-`neighbors-batch`, `batch`, `sweep`, `triage`, `collisions`, `mentions`, `orphans`, `match`, and `superseded` report types. `embead schema REPORT_TYPE` prints any of them one field per line. The files in [`examples`](../examples/) are synthetic
+`neighbors-batch`, `batch`, `sweep`, `triage`, `collisions`, `mentions`, `orphans`, `match`, `superseded`, and `packet` report types. `embead schema REPORT_TYPE` prints any of them one field per line. The files in [`examples`](../examples/) are synthetic
 and contain no private tracker or source content.
 
 ## Version negotiation
@@ -230,6 +230,12 @@ a change names the record by ID, not that the work is complete; a `similar` row 
 ordered by `rank_in_change` and `lead`. Change titles come from git or the caller's changes file.
 `guards` on `neighbors` and `superseded` rows are advisory flags for a human, never a block.
 
+`packet` is one JSON Lines record per seed from `embead packets`, each carrying its own
+`schema_version` and `report_type`; validate each line on its own. Empty optional fields are omitted
+to keep packets short, so a missing key means "none", not "unknown". `duplicate_direction` says which
+record the evidence calls the copy; it is not a close decision. `last_human_touch` is derived and can
+be wrong when people write undated notes; `last_human_touch_source` says where it came from.
+
 ## Schema locations
 
 | Report type | Schema | Example |
@@ -240,6 +246,7 @@ ordered by `rank_in_change` and `lead`. Change titles come from git or the calle
 | `orphans` | [`orphans.schema.json`](../schemas/v1/orphans.schema.json) | [`orphans.json`](../examples/orphans.json) |
 | `match` | [`match.schema.json`](../schemas/v1/match.schema.json) | [`match.json`](../examples/match.json) |
 | `superseded` | [`superseded.schema.json`](../schemas/v1/superseded.schema.json) | [`superseded.json`](../examples/superseded.json) |
+| `packet` (one JSON Lines record) | [`packet.schema.json`](../schemas/v1/packet.schema.json) | [`packet.json`](../examples/packet.json) |
 | `batch` | [`batch.schema.json`](../schemas/v1/batch.schema.json) | [`batch.json`](../examples/batch.json) |
 | `sweep` | [`sweep.schema.json`](../schemas/v1/sweep.schema.json) | [`sweep.json`](../examples/sweep.json) |
 | `triage` | [`triage.schema.json`](../schemas/v1/triage.schema.json) | [`triage.json`](../examples/triage.json) |
